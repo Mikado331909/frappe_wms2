@@ -1,0 +1,132 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:ownership_type",
+ "creation": "2026-07-09 09:00:00.000000",
+ "description": "Who owns incoming stock and how it must be valued at intake. Behaviour is driven by the flags below (user-editable, no developer needed). Phase 2a uses Requires Customer and Receive at Zero Valuation; the remaining rows/flags are reserved for later phases.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "ownership_type",
+  "column_break_head",
+  "is_active",
+  "behaviour_section",
+  "requires_customer",
+  "zero_valuation_receipt",
+  "column_break_behaviour",
+  "enforce_warehouse",
+  "notes_section",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "ownership_type",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Ownership Type",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "column_break_head",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Is Active",
+   "description": "Inactive types cannot be used on receipts (reserved for later phases)."
+  },
+  {
+   "fieldname": "behaviour_section",
+   "fieldtype": "Section Break",
+   "label": "Intake Behaviour"
+  },
+  {
+   "default": "0",
+   "fieldname": "requires_customer",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Requires Customer",
+   "description": "Receipt lines with this type must name the Customer the goods belong to / are handled for."
+  },
+  {
+   "default": "0",
+   "fieldname": "zero_valuation_receipt",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Receive at Zero Valuation",
+   "description": "Quantity is tracked (incl. per storage location) but stock value stays 0, so it never inflates own stock value. Line rate must be 0."
+  },
+  {
+   "fieldname": "column_break_behaviour",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "enforce_warehouse",
+   "fieldtype": "Link",
+   "label": "Route Receipts To Warehouse",
+   "options": "Warehouse",
+   "description": "Optional. If set, receipt lines with this type must go to (or are routed to) this warehouse, e.g. a customer-stock warehouse."
+  },
+  {
+   "fieldname": "notes_section",
+   "fieldtype": "Section Break",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notes"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-07-09 09:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "WMS",
+ "name": "WMS Ownership Type",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Stock Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Stock User"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

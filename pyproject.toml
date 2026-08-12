@@ -1,0 +1,20 @@
+[project]
+name = "frappe_wms2"
+authors = [
+    { name = "WMS2", email = "wms2@example.com" },
+]
+description = "Warehouse location tracking on native ERPNext Inventory Dimensions (Phase 0: foundation + gate tests)"
+requires-python = ">=3.10"
+readme = "README.md"
+dynamic = ["version"]
+dependencies = [
+    # "frappe~=16.0.0" # Installed and managed by bench.
+]
+
+[build-system]
+requires = ["flit_core >=3.4,<4"]
+build-backend = "flit_core.buildapi"
+
+[tool.bench.frappe-dependencies]
+frappe = ">=16.0.0,<17.0.0"
+erpnext = ">=16.0.0,<17.0.0"

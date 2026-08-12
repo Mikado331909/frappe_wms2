@@ -1,0 +1,92 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-08-12 09:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "wip_section",
+  "wip_warehouse",
+  "column_break_wip",
+  "wip_storage_location",
+  "picking_section",
+  "allow_customer_neutral_stock"
+ ],
+ "fields": [
+  {
+   "fieldname": "wip_section",
+   "fieldtype": "Section Break",
+   "label": "WIP"
+  },
+  {
+   "fieldname": "wip_warehouse",
+   "fieldtype": "Link",
+   "label": "WIP Warehouse",
+   "options": "Warehouse",
+   "description": "Simple WIP pot for picked material."
+  },
+  {
+   "fieldname": "column_break_wip",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "wip_storage_location",
+   "fieldtype": "Link",
+   "label": "WIP Location (pot)",
+   "options": "Storage Location",
+   "description": "Single sentinel location inside the WIP warehouse. Needed because the Storage Location dimension is mandatory on stock lines; it does NOT track location within WIP."
+  },
+  {
+   "fieldname": "picking_section",
+   "fieldtype": "Section Break",
+   "label": "Picking"
+  },
+  {
+   "fieldname": "allow_customer_neutral_stock",
+   "fieldtype": "Check",
+   "label": "Allow customer-neutral (Own use) stock in customer picks",
+   "default": "1",
+   "description": "Own-use stock carries no customer, so using it cannot mix customers. Untick to pick strictly customer-owned batches."
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-12 09:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "WMS",
+ "name": "WMS Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Stock Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1,
+ "issingle": 1,
+ "description": "Phase 3a settings for the picking flow."
+}

@@ -1,0 +1,90 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-08-12 09:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "item_code",
+  "item_name",
+  "item_group",
+  "stock_uom",
+  "qty_demand",
+  "qty_listed",
+  "qty_open"
+ ],
+ "fields": [
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "label": "Item",
+   "options": "Item",
+   "in_list_view": 1,
+   "read_only": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "item_name",
+   "fieldtype": "Data",
+   "label": "Item Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "item_group",
+   "fieldtype": "Link",
+   "label": "Item Group",
+   "options": "Item Group",
+   "in_list_view": 1,
+   "read_only": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "stock_uom",
+   "fieldtype": "Link",
+   "label": "UOM",
+   "options": "UOM",
+   "read_only": 1
+  },
+  {
+   "fieldname": "qty_demand",
+   "fieldtype": "Float",
+   "label": "Demand",
+   "in_list_view": 1,
+   "read_only": 1,
+   "columns": 2,
+   "description": "Summed demand across all bundled Material Requests."
+  },
+  {
+   "fieldname": "qty_listed",
+   "fieldtype": "Float",
+   "label": "On Pick Lists",
+   "in_list_view": 1,
+   "read_only": 1,
+   "columns": 2,
+   "description": "Already reserved on generated pick lists (drafts count)."
+  },
+  {
+   "fieldname": "qty_open",
+   "fieldtype": "Float",
+   "label": "Open",
+   "in_list_view": 1,
+   "read_only": 1,
+   "columns": 2
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-12 09:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "WMS",
+ "name": "WMS Pick Batch Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1,
+ "istable": 1,
+ "description": "Summed demand per item across the bundled Material Requests, with reservation status."
+}

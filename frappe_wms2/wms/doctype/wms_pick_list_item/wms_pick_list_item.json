@@ -1,0 +1,191 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-08-12 09:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "material_request",
+  "sales_order",
+  "item_code",
+  "item_name",
+  "item_group",
+  "stock_uom",
+  "qty_needed",
+  "warehouse",
+  "storage_location",
+  "batch_no",
+  "qty_available",
+  "qty_to_pick",
+  "picked_qty",
+  "batch_empty",
+  "reason",
+  "comment",
+  "is_added",
+  "batch_customer",
+  "correction_qty"
+ ],
+ "fields": [
+  {
+   "fieldname": "material_request",
+   "fieldtype": "Link",
+   "label": "Order (Material Request)",
+   "options": "Material Request",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "sales_order",
+   "fieldtype": "Link",
+   "label": "Sales Order",
+   "options": "Sales Order",
+   "read_only": 1
+  },
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "label": "Item",
+   "options": "Item",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "item_name",
+   "fieldtype": "Data",
+   "label": "Item Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "item_group",
+   "fieldtype": "Link",
+   "label": "Item Group",
+   "options": "Item Group",
+   "read_only": 1
+  },
+  {
+   "fieldname": "stock_uom",
+   "fieldtype": "Link",
+   "label": "UOM",
+   "options": "UOM",
+   "read_only": 1
+  },
+  {
+   "fieldname": "qty_needed",
+   "fieldtype": "Float",
+   "label": "Qty needed",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 1,
+   "description": "Open demand of this order line at the time the pick list was generated."
+  },
+  {
+   "fieldname": "warehouse",
+   "fieldtype": "Link",
+   "label": "Warehouse",
+   "options": "Warehouse",
+   "read_only": 1
+  },
+  {
+   "fieldname": "storage_location",
+   "fieldtype": "Link",
+   "label": "Location",
+   "options": "Storage Location",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "batch_no",
+   "fieldtype": "Link",
+   "label": "Batch",
+   "options": "Batch",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "qty_available",
+   "fieldtype": "Float",
+   "label": "Qty available on batch",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 1,
+   "description": "System balance in this (item, batch, location) when the list was generated."
+  },
+  {
+   "fieldname": "qty_to_pick",
+   "fieldtype": "Float",
+   "label": "Qty to pick from batch",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "picked_qty",
+   "fieldtype": "Float",
+   "label": "Picked qty",
+   "in_list_view": 1,
+   "columns": 1,
+   "description": "Entered by the processor from the paper pick list."
+  },
+  {
+   "fieldname": "batch_empty",
+   "fieldtype": "Check",
+   "label": "Batch empty?",
+   "in_list_view": 1,
+   "columns": 1,
+   "description": "Ticked: this (batch, location) is physically empty -> the remaining admin balance is corrected to 0 on submit."
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Link",
+   "label": "Reason",
+   "options": "WMS Pick Reason",
+   "depends_on": "eval:doc.picked_qty != doc.qty_to_pick || doc.batch_empty",
+   "description": "Mandatory when picked qty differs from qty to pick, or when the batch-empty flag disagrees with the balance."
+  },
+  {
+   "fieldname": "comment",
+   "fieldtype": "Small Text",
+   "label": "Comment",
+   "depends_on": "eval:doc.picked_qty != doc.qty_to_pick || doc.batch_empty"
+  },
+  {
+   "fieldname": "is_added",
+   "fieldtype": "Check",
+   "label": "Added by processor",
+   "read_only": 1,
+   "description": "Line added during processing (batch/location not originally proposed)."
+  },
+  {
+   "fieldname": "batch_customer",
+   "fieldtype": "Data",
+   "label": "Batch Customer",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "correction_qty",
+   "fieldtype": "Float",
+   "label": "Correction qty",
+   "read_only": 1,
+   "description": "Written off to 0 on submit because the batch was flagged empty."
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-12 09:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "WMS",
+ "name": "WMS Pick List Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1,
+ "istable": 1
+}

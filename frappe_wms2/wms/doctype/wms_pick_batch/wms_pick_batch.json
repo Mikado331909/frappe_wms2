@@ -1,0 +1,194 @@
+{
+ "actions": [],
+ "autoname": "naming_series:",
+ "creation": "2026-07-12 09:00:00.000000",
+ "description": "Bundle of Material Requests of ONE customer to pick together. Customer is derived from the Sales Orders behind the MRs; mixing customers is hard-blocked. Demand is summed per item; generated pick lists reserve their share of the demand.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "customer",
+  "column_break_head",
+  "company",
+  "status",
+  "mrs_section",
+  "material_requests",
+  "help_section",
+  "generation_help",
+  "demand_section",
+  "demand_items",
+  "totals_section",
+  "total_demand",
+  "column_break_totals",
+  "total_open",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "default": "WMS-PB-.YYYY.-",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "Series",
+   "options": "WMS-PB-.YYYY.-"
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Customer",
+   "options": "Customer",
+   "read_only": 1,
+   "description": "Derived from the Sales Orders behind the Material Requests. All bundled MRs must belong to this one customer."
+  },
+  {
+   "fieldname": "column_break_head",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "default": "Open",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Open\nCompleted\nCancelled",
+   "read_only": 1
+  },
+  {
+   "fieldname": "mrs_section",
+   "fieldtype": "Section Break",
+   "label": "Material Requests (one customer)"
+  },
+  {
+   "fieldname": "material_requests",
+   "fieldtype": "Table",
+   "label": "Material Requests",
+   "options": "WMS Pick Batch MR",
+   "reqd": 1
+  },
+  {
+   "fieldname": "help_section",
+   "fieldtype": "Section Break",
+   "label": ""
+  },
+  {
+   "fieldname": "generation_help",
+   "fieldtype": "HTML",
+   "label": "Demand / Pick Lists",
+   "options": "<div class=\"text-muted\">Use <b>Get Demand Overview</b> (button) to see the summed demand per item and item group, what is already on a pick list, and what is still open. Then generate pick lists per item group.</div>"
+  },
+  {
+   "fieldname": "demand_section",
+   "fieldtype": "Section Break",
+   "label": "Demand overview"
+  },
+  {
+   "fieldname": "demand_items",
+   "fieldtype": "Table",
+   "label": "Demand per item",
+   "options": "WMS Pick Batch Item",
+   "read_only": 1,
+   "description": "Summed across the bundled Material Requests. 'On Pick Lists' is reserved and cannot be picked again."
+  },
+  {
+   "fieldname": "totals_section",
+   "fieldtype": "Section Break",
+   "label": "Totals"
+  },
+  {
+   "fieldname": "total_demand",
+   "fieldtype": "Float",
+   "label": "Total demand",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_totals",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_open",
+   "fieldtype": "Float",
+   "label": "Total open",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "options": "WMS Pick Batch",
+   "read_only": 1,
+   "no_copy": 1,
+   "print_hide": 1
+  }
+ ],
+ "is_submittable": 1,
+ "links": [
+  {
+   "group": "Pick Lists",
+   "link_doctype": "WMS Pick List",
+   "link_fieldname": "pick_batch"
+  }
+ ],
+ "modified": "2026-07-12 09:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "WMS",
+ "name": "WMS Pick Batch",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "cancel": 1,
+   "amend": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Stock Manager",
+   "share": 1,
+   "submit": 1,
+   "cancel": 1,
+   "amend": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Stock User",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1,
+ "title_field": "customer"
+}

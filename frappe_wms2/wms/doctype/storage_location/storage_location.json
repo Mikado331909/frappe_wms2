@@ -1,0 +1,170 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:location_code",
+ "creation": "2026-07-08 10:00:00.000000",
+ "description": "Physical storage location (reference document for the Storage Location Inventory Dimension). Holds NO stock quantities: quantity per location lives exclusively in the Stock Ledger.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "location_code",
+  "warehouse",
+  "column_break_main",
+  "is_active",
+  "is_special",
+  "parsed_components_section",
+  "material",
+  "gang",
+  "column_break_parsed",
+  "niveau",
+  "plaats",
+  "capacity_section",
+  "capacity",
+  "column_break_capacity",
+  "capacity_uom"
+ ],
+ "fields": [
+  {
+   "fieldname": "location_code",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Location Code",
+   "reqd": 1,
+   "unique": 1,
+   "description": "Format: [F|T][gang letter][niveau]-[plaats], e.g. FA1-2 = Fabrics, gang A, niveau 1, plaats 2"
+  },
+  {
+   "fieldname": "warehouse",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Warehouse",
+   "options": "Warehouse",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_main",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "label": "Is Active"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_special",
+   "fieldtype": "Check",
+   "label": "Special (non-physical) location",
+   "description": "For sentinel locations such as the WIP pot. Skips the FA1-2 code format and carries no parsed components. Not a shelf."
+  },
+  {
+   "fieldname": "parsed_components_section",
+   "fieldtype": "Section Break",
+   "label": "Parsed Components",
+   "description": "Derived automatically from the Location Code on save; used for filtering and reporting."
+  },
+  {
+   "fieldname": "material",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Material",
+   "options": "\nFabrics\nTrimmings",
+   "read_only": 1
+  },
+  {
+   "fieldname": "gang",
+   "fieldtype": "Data",
+   "label": "Gang",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_parsed",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "niveau",
+   "fieldtype": "Int",
+   "label": "Niveau",
+   "read_only": 1
+  },
+  {
+   "fieldname": "plaats",
+   "fieldtype": "Int",
+   "label": "Plaats",
+   "read_only": 1
+  },
+  {
+   "fieldname": "capacity_section",
+   "fieldtype": "Section Break",
+   "label": "Capacity"
+  },
+  {
+   "fieldname": "capacity",
+   "fieldtype": "Float",
+   "label": "Capacity",
+   "description": "Physical capacity of the location (informational; not a stock quantity)."
+  },
+  {
+   "fieldname": "column_break_capacity",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "capacity_uom",
+   "fieldtype": "Link",
+   "label": "Capacity UOM",
+   "options": "UOM"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-07-08 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "WMS",
+ "name": "Storage Location",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Stock Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Stock User"
+  }
+ ],
+ "search_fields": "warehouse,material,gang",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
