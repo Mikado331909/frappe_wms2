@@ -141,7 +141,7 @@ class WMSPickList(Document):
     # -------------------------------------------------------------- posting
 
     def post_stock(self):
-        wip_warehouse, wip_location = get_wip_target()
+        wip_warehouse, wip_location = get_wip_target(self.company)
 
         transfer = self.make_transfer_to_wip(wip_warehouse, wip_location)
         correction = self.make_empty_corrections()

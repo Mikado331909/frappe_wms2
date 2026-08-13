@@ -51,6 +51,7 @@ def after_install():
     ensure_storage_location_inventory_dimension()
     ensure_ownership_types()
     ensure_pick_reasons()
+    ensure_wms_settings_company()
 
 
 # Phase 3a: shared, self-managed reason list (shortage AND surplus).
@@ -75,6 +76,28 @@ PICK_REASON_SEED = [
      "applies_to_surplus": 1,
      "description": "Difference between administration and physical count."},
 ]
+
+
+def ensure_wms_settings_company():
+    """Fill the company scope on WMS Settings if it is still empty.
+
+    WMS Settings is a global Single; its WIP fields are filtered by this
+    company. Resolved dynamically (global default, or the only company on
+    the site) — never by name, so the app installs unchanged anywhere.
+    """
+    if not frappe.db.exists("DocType", "WMS Settings"):
+        return
+    if frappe.db.get_single_value("WMS Settings", "company"):
+        return
+
+    from frappe_wms2.wms.doctype.wms_settings.wms_settings import (
+        resolve_default_company,
+    )
+
+    company = resolve_default_company()
+    if company:
+        frappe.db.set_single_value("WMS Settings", "company", company)
+        frappe.clear_cache(doctype="WMS Settings")
 
 
 def ensure_pick_reasons():

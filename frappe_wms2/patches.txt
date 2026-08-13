@@ -4,3 +4,4 @@
 frappe_wms2.patches.v0_1.setup_storage_location_inventory_dimension
 frappe_wms2.patches.v0_2.setup_phase2a
 frappe_wms2.patches.v0_3.setup_phase3a
+frappe_wms2.patches.v0_4.set_wms_settings_company

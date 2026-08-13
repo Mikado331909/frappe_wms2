@@ -100,6 +100,7 @@ class TestPickingPhase3a(TestBase):
 
     @classmethod
     def tearDownClass(cls):
+        frappe.flags.wms2_settings_override = None
         # Reverse order: children before parents.
         for doctype, name in reversed(cls.created):
             try:
@@ -178,13 +179,16 @@ class TestPickingPhase3a(TestBase):
             ).insert(ignore_permissions=True)
         cls.track("Storage Location", pot)
 
-        # Remember and restore nothing: settings are a Single, so keep the
-        # previous values and put them back in tearDownClass would be nice,
-        # but the pot must stay valid for submitted lists. Test sites only.
-        frappe.db.set_single_value("WMS Settings", "wip_warehouse", wh)
-        frappe.db.set_single_value("WMS Settings", "wip_storage_location", pot)
-        frappe.db.set_single_value("WMS Settings", "allow_customer_neutral_stock", 1)
-        frappe.clear_cache(doctype="WMS Settings")
+        # WMS Settings is a GLOBAL Single, shared by the whole site and not
+        # scoped per company — a test once overwrote a live WIP pot there.
+        # So we never write it: the values are injected in-memory for this
+        # process only and disappear when it ends.
+        frappe.flags.wms2_settings_override = {
+            "company": COMPANY,
+            "wip_warehouse": wh,
+            "wip_storage_location": pot,
+            "allow_customer_neutral_stock": 1,
+        }
         cls.wip_warehouse = wh
         cls.wip_location = pot
 
@@ -666,6 +670,108 @@ class TestPickingPhase3a(TestBase):
 
         # Picked qty / Batch empty? are left blank for the picker.
         self.assertGreaterEqual(html.count('class="fill"'), 2 * len(pl.items))
+
+    # ----------------------------------------------------------------- T11
+    def test_t11_wip_pot_is_company_scoped(self):
+        """WMS Settings is a global Single, so its WIP fields must be scoped
+        to a company — by configuration, not by name matching."""
+        from frappe_wms2.wms.doctype.wms_settings.wms_settings import (
+            resolve_default_company,
+            storage_location_query,
+        )
+        from frappe_wms2.wms.picking import get_wip_target
+
+        meta = frappe.get_meta("WMS Settings")
+        self.assertTrue(meta.has_field("company"))
+
+        # Both WIP fields carry company-scoping link filters.
+        wh_filters = meta.get_field("wip_warehouse").link_filters or ""
+        self.assertIn("company", wh_filters)
+        self.assertIn("eval:doc.company", wh_filters)
+        loc_filters = meta.get_field("wip_storage_location").link_filters or ""
+        self.assertIn("eval:doc.wip_warehouse", loc_filters)
+
+        # A second, differently named company must not leak into the picker.
+        other_name = f"WMS2 Other {self.run_token}"
+        if not frappe.db.exists("Company", other_name):
+            frappe.get_doc(
+                {
+                    "doctype": "Company",
+                    "company_name": other_name,
+                    "abbr": f"O{self.run_token[:3]}",
+                    "default_currency": "EUR",
+                    "country": "Netherlands",
+                }
+            ).insert(ignore_permissions=True)
+        self.track("Company", other_name)
+
+        other_wh_name = f"WMS2 Other WH {self.run_token}"
+        other_abbr = frappe.db.get_value("Company", other_name, "abbr")
+        other_wh = f"{other_wh_name} - {other_abbr}"
+        if not frappe.db.exists("Warehouse", other_wh):
+            frappe.get_doc(
+                {
+                    "doctype": "Warehouse",
+                    "warehouse_name": other_wh_name,
+                    "company": other_name,
+                }
+            ).insert(ignore_permissions=True)
+        self.track("Warehouse", other_wh)
+
+        other_loc = f"WMS2-OTHER-{self.run_token}"
+        if not frappe.db.exists("Storage Location", other_loc):
+            frappe.get_doc(
+                {
+                    "doctype": "Storage Location",
+                    "location_code": other_loc,
+                    "warehouse": other_wh,
+                    "is_special": 1,
+                }
+            ).insert(ignore_permissions=True)
+        self.track("Storage Location", other_loc)
+
+        # The location search returns only the queried company's locations —
+        # for BOTH companies, so this cannot be name matching.
+        ours = [row[0] for row in storage_location_query(
+            "Storage Location", "", "name", 0, 100, {"company": COMPANY}
+        )]
+        theirs = [row[0] for row in storage_location_query(
+            "Storage Location", "", "name", 0, 100, {"company": other_name}
+        )]
+        self.assertIn(self.wip_location, ours)
+        self.assertNotIn(other_loc, ours)
+        self.assertIn(other_loc, theirs)
+        self.assertNotIn(self.wip_location, theirs)
+
+        # Company is resolved dynamically, never hardcoded.
+        self.assertIn(
+            resolve_default_company(),
+            frappe.get_all("Company", pluck="name") + [None],
+        )
+
+        # Server-side enforcement: a pot from another company is refused.
+        settings = frappe.get_doc("WMS Settings")
+        settings.company = COMPANY
+        settings.wip_warehouse = other_wh
+        with self.assertRaises(frappe.ValidationError):
+            settings.validate_company_scope()
+
+        # ...and posting refuses it too, whatever the dropdown allowed.
+        frappe.flags.wms2_settings_override = {
+            "company": other_name,
+            "wip_warehouse": other_wh,
+            "wip_storage_location": other_loc,
+        }
+        with self.assertRaises(frappe.ValidationError):
+            get_wip_target(COMPANY)
+
+        # Restore the override the other tests rely on.
+        frappe.flags.wms2_settings_override = {
+            "company": COMPANY,
+            "wip_warehouse": self.wip_warehouse,
+            "wip_storage_location": self.wip_location,
+            "allow_customer_neutral_stock": 1,
+        }
 
     # ------------------------------------------------------------------ T9
     def test_t9_reason_master_is_self_managed_and_shared(self):

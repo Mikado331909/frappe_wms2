@@ -5,8 +5,12 @@
 # that carry stock state (items, batches) get a unique hash suffix per test so
 # tests never contaminate each other.
 
+import functools
+
 import frappe
 from frappe.utils import flt, nowdate
+
+from frappe_wms2.tests.site_safety import assert_disposable_site
 
 COMPANY = "WMS2 Gate Company"
 ABBR = "WGC"
@@ -39,8 +43,32 @@ L1 = throwaway_location_code()
 L2 = throwaway_location_code()
 
 
+def creates_test_data(func):
+    """Every factory that writes to the database goes through this.
+
+    The disposable-site guard used to live only in setup_gate_records(), so
+    any test module that called a factory directly (as the Storage Location
+    unit tests did) skipped it and silently created the test Company on a
+    real site. Enforcing it here makes that impossible by construction: a
+    new test file cannot create test data without passing the check, because
+    there is no factory that isn't wrapped.
+    """
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        assert_disposable_site()
+        return func(*args, **kwargs)
+
+    return wrapper
+
+
+@creates_test_data
 def setup_gate_records():
-    """Create the fixed set of records the gate tests share."""
+    """Create the fixed set of records the gate tests share.
+
+    Guarded: this creates a Company and SUBMITTED stock documents, so it
+    refuses to run on anything but an explicitly disposable site.
+    """
     from frappe_wms2.install import ensure_storage_location_inventory_dimension
 
     ensure_storage_location_inventory_dimension()
@@ -50,6 +78,8 @@ def setup_gate_records():
     from frappe_wms2.install import ensure_ownership_types
 
     ensure_ownership_types()
+
+    _snapshot_global_singles()
 
     # Global negative stock must be OFF: V4 must be blocked by the DIMENSION
     # check even before the warehouse-level check could fire, and warehouse
@@ -76,6 +106,7 @@ def setup_gate_records():
     get_or_create_supplier()
 
 
+@creates_test_data
 def ensure_erpnext_masters():
     """A sterile test site (setup wizard never run) has NONE of the standard
     masters a real site always has: Warehouse Type "Transit" (needed by
@@ -113,6 +144,49 @@ def ensure_erpnext_masters():
         ).insert(ignore_permissions=True)
 
 
+_SINGLE_SNAPSHOT = {}
+
+_WATCHED_SINGLES = {
+    "Stock Settings": (
+        "allow_negative_stock",
+        "enable_serial_and_batch_no_for_item",
+        "use_serial_batch_fields",
+        "auto_insert_price_list_rate_if_missing",
+    ),
+    "WMS Settings": ("wip_warehouse", "wip_storage_location",
+                     "allow_customer_neutral_stock"),
+}
+
+
+def _snapshot_global_singles():
+    """Remember global Single values so the suite can put them back.
+
+    Singles are shared by the whole site and are NOT scoped per company, so
+    a test that writes one would change live configuration. WMS Settings is
+    never written at all (tests use frappe.flags.wms2_settings_override);
+    this snapshot is the safety net for the Stock Settings flags the intake
+    tests genuinely need, and a tripwire if anything else writes a Single.
+    """
+    if _SINGLE_SNAPSHOT:
+        return
+    for doctype, fields in _WATCHED_SINGLES.items():
+        if not frappe.db.exists("DocType", doctype):
+            continue
+        _SINGLE_SNAPSHOT[doctype] = {
+            field: frappe.db.get_single_value(doctype, field) for field in fields
+        }
+
+
+def restore_global_singles():
+    """Put every watched Single back exactly as it was found."""
+    for doctype, values in _SINGLE_SNAPSHOT.items():
+        for field, value in values.items():
+            if frappe.db.get_single_value(doctype, field) != value:
+                frappe.db.set_single_value(doctype, field, value)
+        frappe.clear_cache(doctype=doctype)
+
+
+@creates_test_data
 def get_or_create_company():
     ensure_erpnext_masters()
     if frappe.db.exists("Company", COMPANY):
@@ -144,6 +218,7 @@ def get_or_create_company():
     return COMPANY
 
 
+@creates_test_data
 def get_or_create_warehouse():
     if frappe.db.exists("Warehouse", WAREHOUSE):
         return WAREHOUSE
@@ -157,6 +232,7 @@ def get_or_create_warehouse():
     return WAREHOUSE
 
 
+@creates_test_data
 def get_or_create_location(code, warehouse=None):
     if frappe.db.exists("Storage Location", code):
         return code
@@ -170,6 +246,7 @@ def get_or_create_location(code, warehouse=None):
     return code
 
 
+@creates_test_data
 def get_or_create_supplier():
     if frappe.db.exists("Supplier", SUPPLIER):
         return SUPPLIER
@@ -183,6 +260,7 @@ def get_or_create_supplier():
     return SUPPLIER
 
 
+@creates_test_data
 def get_or_create_customer(name):
     if frappe.db.exists("Customer", name):
         return name
@@ -201,6 +279,7 @@ def get_or_create_customer(name):
     return name
 
 
+@creates_test_data
 def _leaf_customer_group():
     leaf = frappe.db.get_value("Customer Group", {"is_group": 0})
     if leaf:
@@ -222,6 +301,7 @@ def _leaf_customer_group():
     return doc.name
 
 
+@creates_test_data
 def make_item(has_batch_no=False):
     code = f"WMS2-GATE-{frappe.generate_hash(length=8).upper()}"
     frappe.get_doc(
@@ -244,6 +324,7 @@ def make_item(has_batch_no=False):
     return code
 
 
+@creates_test_data
 def make_batch(item_code):
     batch_id = f"WMS2B-{frappe.generate_hash(length=8).upper()}"
     frappe.get_doc(
@@ -267,6 +348,7 @@ def company_accounts():
     return cost_center, adjustment
 
 
+@creates_test_data
 def make_stock_entry(stock_entry_type, rows, do_not_submit=False):
     """rows: list of dicts; dimension fields (storage_location /
     to_storage_location) are passed through verbatim."""
@@ -296,6 +378,7 @@ def make_stock_entry(stock_entry_type, rows, do_not_submit=False):
     return se
 
 
+@creates_test_data
 def zero_valuation_buying_price_list():
     """A dedicated EUR buying price list for the tests.
 
@@ -322,6 +405,7 @@ def zero_valuation_buying_price_list():
     return name
 
 
+@creates_test_data
 def make_purchase_receipt(rows, do_not_submit=False):
     cost_center, _adjustment = company_accounts()
 

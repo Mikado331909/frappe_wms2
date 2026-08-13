@@ -44,10 +44,21 @@ bench --site <site> install-app frappe_wms2   # registers the dimension
 bench --site <site> migrate
 ```
 
-## Run the gate
+## Run the tests — on a DISPOSABLE site only
+
+The suite creates a test Company, warehouses, items and submitted stock
+documents. It refuses to run unless the site is explicitly marked disposable.
 
 ```bash
-bench --site <test_site> run-tests --app frappe_wms2
+# from the bench directory: creates a fresh site, runs, drops it again
+bash apps/frappe_wms2/scripts/run_tests_disposable.sh
+```
+
+Never run it against a production site. If a site was polluted by an earlier
+run, clean it with:
+
+```bash
+bench --site <site> execute frappe_wms2.tests.site_safety.purge
 ```
 
 The gate must pass on the actual target ERPNext build before any Phase 1

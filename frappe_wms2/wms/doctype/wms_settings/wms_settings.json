@@ -6,6 +6,8 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
+  "company_section",
+  "company",
   "wip_section",
   "wip_warehouse",
   "column_break_wip",
@@ -14,6 +16,19 @@
   "allow_customer_neutral_stock"
  ],
  "fields": [
+  {
+   "fieldname": "company_section",
+   "fieldtype": "Section Break",
+   "label": "Scope"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1,
+   "description": "Company these WIP settings belong to. Defaults to the site's global default company; the WIP fields below only offer records of this company."
+  },
   {
    "fieldname": "wip_section",
    "fieldtype": "Section Break",
@@ -24,7 +39,9 @@
    "fieldtype": "Link",
    "label": "WIP Warehouse",
    "options": "Warehouse",
-   "description": "Simple WIP pot for picked material."
+   "description": "Simple WIP pot for picked material. Only warehouses of the company selected above are offered.",
+   "link_filters": "[[\"Warehouse\", \"company\", \"=\", \"eval:doc.company\"], [\"Warehouse\", \"is_group\", \"=\", 0]]",
+   "depends_on": "company"
   },
   {
    "fieldname": "column_break_wip",
@@ -35,7 +52,9 @@
    "fieldtype": "Link",
    "label": "WIP Location (pot)",
    "options": "Storage Location",
-   "description": "Single sentinel location inside the WIP warehouse. Needed because the Storage Location dimension is mandatory on stock lines; it does NOT track location within WIP."
+   "description": "Single sentinel location inside the WIP warehouse. Needed because the Storage Location dimension is mandatory on stock lines; it does NOT track location within WIP. Only locations inside the WIP warehouse above are offered.",
+   "link_filters": "[[\"Storage Location\", \"warehouse\", \"=\", \"eval:doc.wip_warehouse\"]]",
+   "depends_on": "wip_warehouse"
   },
   {
    "fieldname": "picking_section",

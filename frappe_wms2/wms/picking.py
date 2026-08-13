@@ -24,13 +24,33 @@ CUSTOMER_FIELD = "wms_customer"
 
 
 def get_settings():
+    """WMS Settings, honouring an in-memory override.
+
+    WMS Settings is a global Single shared by the whole site. Tests must
+    never write to it (a test run once overwrote a live WIP pot), so they
+    set `frappe.flags.wms2_settings_override` instead: the values live only
+    in the current process and nothing is persisted.
+    """
+    override = getattr(frappe.local, "flags", {}).get("wms2_settings_override")
+    if override:
+        doc = frappe.get_cached_doc("WMS Settings")
+        # Never mutate the cached Single: work on a detached copy.
+        values = doc.as_dict()
+        values.update(override)
+        return frappe._dict(values)
     return frappe.get_cached_doc("WMS Settings")
 
 
-def get_wip_target():
+def get_wip_target(company=None):
     """(warehouse, storage_location) of the WIP pot. Both are required: the
     Storage Location dimension is mandatory on stock lines (Phase 0), so even
-    a 'we don't track location in WIP' pot needs one sentinel location."""
+    a 'we don't track location in WIP' pot needs one sentinel location.
+
+    When a company is given, the pot must belong to it. That check is the
+    enforcement behind the company-scoped pickers on WMS Settings: a filtered
+    dropdown is only UX, this is what actually stops stock being transferred
+    into another company's warehouse.
+    """
     s = get_settings()
     if not s.wip_warehouse or not s.wip_storage_location:
         frappe.throw(
@@ -40,6 +60,22 @@ def get_wip_target():
             ),
             title=_("WIP pot not configured"),
         )
+
+    if company:
+        pot_company = frappe.db.get_value("Warehouse", s.wip_warehouse, "company")
+        if pot_company != company:
+            frappe.throw(
+                _(
+                    "The WIP pot in WMS Settings ({0}) belongs to {1}, but this "
+                    "document is for {2}. Configure a WIP warehouse of {2}."
+                ).format(
+                    frappe.bold(s.wip_warehouse),
+                    frappe.bold(pot_company or _("no company")),
+                    frappe.bold(company),
+                ),
+                title=_("Wrong company"),
+            )
+
     return s.wip_warehouse, s.wip_storage_location
 
 
