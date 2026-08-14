@@ -10,6 +10,10 @@ frappe.ui.form.on("WMS Pick List", {
 				add_line_dialog(frm)
 			);
 		}
+		if (frm.doc.docstatus === 1) {
+			frm.add_custom_button(__("Cancel Pick List"), () => cancel_dialog(frm));
+			frm.add_custom_button(__("Return Qty"), () => return_dialog(frm));
+		}
 		if (frm.doc.docstatus === 1 && frm.doc.stock_entry) {
 			frm.add_custom_button(
 				__("Pick Stock Entry"),
@@ -124,4 +128,107 @@ function add_line_dialog(frm) {
 	};
 
 	dialog.show();
+}
+
+
+// ---------------------------------------------------------------- Phase 3b
+// Cancel (full) and Return (partial). Both reverse exactly: the quantity goes
+// back to the batch and location it was picked from. A reason is mandatory
+// for both, and only reasons flagged "Applies to Cancel / Return" are offered.
+
+function reason_field() {
+	return {
+		fieldname: "reason",
+		fieldtype: "Link",
+		options: "WMS Pick Reason",
+		label: __("Reason"),
+		reqd: 1,
+		get_query: () => ({
+			filters: { is_active: 1, applies_to_cancel_return: 1 },
+		}),
+	};
+}
+
+function cancel_dialog(frm) {
+	const d = new frappe.ui.Dialog({
+		title: __("Cancel this pick list"),
+		fields: [
+			{
+				fieldtype: "HTML",
+				options: `<p>${__(
+					"Everything still in WIP goes back to its original batch and location. This cannot be undone — redo it as a fresh pick."
+				)}</p>`,
+			},
+			reason_field(),
+			{ fieldname: "comment", fieldtype: "Small Text", label: __("Comment") },
+		],
+		primary_action_label: __("Cancel pick list"),
+		primary_action(values) {
+			d.hide();
+			frm.call({
+				doc: frm.doc,
+				method: "cancel_pick",
+				args: values,
+				freeze: true,
+				freeze_message: __("Returning stock from WIP..."),
+			}).then(() => {
+				frm.reload_doc();
+				frappe.show_alert({
+					message: __("Pick list cancelled and stock returned."),
+					indicator: "green",
+				});
+			});
+		},
+	});
+	d.show();
+}
+
+function return_dialog(frm) {
+	const options = (frm.doc.items || [])
+		.filter((row) => flt(row.picked_qty) - flt(row.returned_qty) > 0)
+		.map((row) => ({
+			label: `${row.idx}: ${row.item_code} — ${__("batch")} ${row.batch_no} @ ${
+				row.storage_location
+			} (${__("outstanding")} ${flt(row.picked_qty) - flt(row.returned_qty)})`,
+			value: row.name,
+		}));
+
+	if (!options.length) {
+		frappe.msgprint(__("Nothing left to return on this pick list."));
+		return;
+	}
+
+	const d = new frappe.ui.Dialog({
+		title: __("Return a quantity to stock"),
+		fields: [
+			{
+				fieldname: "row_name",
+				fieldtype: "Select",
+				label: __("Line"),
+				reqd: 1,
+				options: options,
+			},
+			{ fieldname: "qty", fieldtype: "Float", label: __("Qty to return"), reqd: 1 },
+			reason_field(),
+			{ fieldname: "comment", fieldtype: "Small Text", label: __("Comment") },
+		],
+		primary_action_label: __("Return"),
+		primary_action(values) {
+			d.hide();
+			frm.call({
+				doc: frm.doc,
+				method: "return_line",
+				args: values,
+				freeze: true,
+				freeze_message: __("Returning stock from WIP..."),
+			}).then(() => {
+				frm.reload_doc();
+				frappe.show_alert({
+					message: __("Returned to the original batch and location."),
+					indicator: "green",
+				});
+			});
+		},
+	});
+	d.show();
 }

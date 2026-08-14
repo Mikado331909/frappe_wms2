@@ -27,7 +27,12 @@
   "stock_entry",
   "column_break_posting",
   "correction_stock_entry",
-  "amended_from"
+  "amended_from",
+  "reversal_section",
+  "cancel_reason",
+  "cancel_comment",
+  "column_break_reversal",
+  "total_returned"
  ],
  "fields": [
   {
@@ -174,6 +179,38 @@
    "read_only": 1,
    "no_copy": 1,
    "print_hide": 1
+  },
+  {
+   "fieldname": "reversal_section",
+   "fieldtype": "Section Break",
+   "label": "Cancellation / Returns",
+   "depends_on": "eval:doc.docstatus>0"
+  },
+  {
+   "fieldname": "cancel_reason",
+   "fieldtype": "Link",
+   "label": "Cancel Reason",
+   "options": "WMS Pick Reason",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "cancel_comment",
+   "fieldtype": "Small Text",
+   "label": "Cancel Comment",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "column_break_reversal",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_returned",
+   "fieldtype": "Float",
+   "label": "Total returned",
+   "read_only": 1,
+   "no_copy": 1
   }
  ],
  "index_web_pages_for_search": 1,

@@ -38,17 +38,157 @@ class WMSPickList(Document):
     def on_submit(self):
         self.post_stock()
 
+    def before_cancel(self):
+        # Deliberately before_cancel, not on_cancel: this hook runs BEFORE the
+        # docstatus is written, so a refused cancel leaves the row untouched
+        # even if the caller swallows the exception without rolling back.
+        self.guard_cancel()
+
     def on_cancel(self):
-        # Cancellation/return is a later phase (3b). Refuse plainly rather
-        # than half-implementing a reversal.
-        frappe.throw(
-            _(
-                "Cancelling a submitted pick list is not implemented yet "
-                "(comes with the cancellation/return phase). Correct the "
-                "stock with a separate entry if needed."
-            ),
-            title=_("Not in this phase"),
+        self.guard_cancel()
+
+    def guard_cancel(self):
+        # The standard Cancel button must never post an unaudited reversal:
+        # it would leave the picked stock sitting in WIP with nothing to say
+        # where it went. Cancellation goes through cancel_pick(), which
+        # posts the reverse transfer, records the reason, and only then sets
+        # this flag.
+        if not self.flags.wms2_reversal:
+            frappe.throw(
+                _(
+                    "Use the <b>Cancel Pick List</b> button instead. It moves the "
+                    "picked quantities back from WIP to their original batch and "
+                    "location, and records the mandatory reason."
+                ),
+                title=_("Cancel via the button"),
+            )
+
+    # ------------------------------------------------------- Phase 3b: cancel
+
+    @frappe.whitelist()
+    def cancel_pick(self, reason, comment=None):
+        """Full, exact reversal of a submitted pick list.
+
+        Every line's picked quantity goes back from the WIP pot into its own
+        batch and storage location. No partial cancel — use return_line() for
+        a partial quantity.
+        """
+        from frappe_wms2.wms.reversal import (
+            assert_still_in_wip,
+            make_reversal_entry,
+            validate_reason,
         )
+
+        self.check_permission("cancel")
+        if self.docstatus != 1:
+            frappe.throw(_("Only a submitted pick list can be cancelled."))
+
+        validate_reason(reason, _("cancel"))
+
+        lines = []
+        for row in self.items:
+            outstanding = flt(row.picked_qty) - flt(row.returned_qty)
+            if outstanding <= 0:
+                continue
+            # Hard boundary: refuse unless it is ALL still untouched in WIP.
+            assert_still_in_wip(self, row, outstanding)
+            lines.append((row, outstanding))
+
+        entry = make_reversal_entry(
+            self, lines, reason, comment, action="Cancellation"
+        ) if lines else None
+
+        for row, qty in lines:
+            row.db_set("returned_qty", flt(row.returned_qty) + flt(qty))
+
+        self.db_set(
+            {
+                "cancel_reason": reason,
+                "cancel_comment": comment,
+                "total_returned": sum(
+                    flt(r.returned_qty) for r in self.items
+                ),
+            }
+        )
+
+        # Now mark the document itself cancelled.
+        self.flags.wms2_reversal = True
+        self.cancel()
+
+        self.refresh_bundle()
+
+        return {
+            "stock_entry": entry.name if entry else None,
+            "reversed_qty": sum(flt(q) for _row, q in lines),
+        }
+
+    # ------------------------------------------------------- Phase 3b: return
+
+    @frappe.whitelist()
+    def return_line(self, row_name, qty, reason, comment=None):
+        """Return a specific quantity of ONE line back to stock.
+
+        Exactly the same reversal as a cancel, only for part of a line and
+        repeatable: same batch, same storage location, never a different one.
+        """
+        from frappe_wms2.wms.reversal import (
+            assert_still_in_wip,
+            make_reversal_entry,
+            validate_reason,
+        )
+
+        self.check_permission("submit")
+        if self.docstatus != 1:
+            frappe.throw(_("Only a submitted pick list can be returned from."))
+
+        qty = flt(qty)
+        if qty <= 0:
+            frappe.throw(_("Enter a quantity greater than zero."))
+
+        validate_reason(reason, _("return a quantity from"))
+
+        row = next((r for r in self.items if r.name == row_name), None)
+        if not row:
+            frappe.throw(_("Line {0} is not part of this pick list.").format(row_name))
+
+        outstanding = flt(row.picked_qty) - flt(row.returned_qty)
+        if qty > outstanding + 0.0000001:
+            frappe.throw(
+                _(
+                    "Row {0}: cannot return {1}; only {2} of the picked {3} is "
+                    "still outstanding."
+                ).format(row.idx, qty, outstanding, flt(row.picked_qty)),
+                title=_("More than was picked"),
+            )
+
+        # Hard boundary: this quantity must still be untouched in WIP.
+        assert_still_in_wip(self, row, qty)
+
+        entry = make_reversal_entry(
+            self, [(row, qty)], reason, comment, action="Return"
+        )
+
+        row.db_set("returned_qty", flt(row.returned_qty) + qty)
+        # The line keeps its own reason trail; the last return wins on the
+        # header counter.
+        self.db_set(
+            "total_returned", sum(flt(r.returned_qty) for r in self.items)
+        )
+
+        self.refresh_bundle()
+
+        return {"stock_entry": entry.name, "returned_qty": qty}
+
+    def refresh_bundle(self):
+        """Reservation follows reality: cancelled/returned quantity becomes
+        open demand again on the pick batch."""
+        if not self.pick_batch or not frappe.db.exists(
+            "WMS Pick Batch", self.pick_batch
+        ):
+            return
+        bundle = frappe.get_doc("WMS Pick Batch", self.pick_batch)
+        bundle.build_demand()
+        bundle.db_update_all()
 
     # ----------------------------------------------------------- validation
 

@@ -72,7 +72,14 @@ def token(n=6):
     return "".join(random.choices(string.ascii_uppercase + string.digits, k=n))
 
 
-class TestPickingPhase3a(TestBase):
+class PickingFixtures(TestBase):
+    """Shared, collision-safe fixtures for the picking tests.
+
+    Split out so the Phase 3b reversal tests can start from a real submitted
+    pick list without duplicating any of this (and without re-running the
+    Phase 3a tests).
+    """
+
     # ------------------------------------------------------------- fixtures
 
     @classmethod
@@ -298,6 +305,8 @@ class TestPickingPhase3a(TestBase):
             out[(row.batch_no, row.storage_location)] = row.qty
         return out
 
+
+class TestPickingPhase3a(PickingFixtures):
     # ------------------------------------------------------------------ T1
     def test_t1_cannot_bundle_two_customers(self):
         item = self.new_item()

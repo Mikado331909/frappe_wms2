@@ -24,7 +24,8 @@
   "comment",
   "is_added",
   "batch_customer",
-  "correction_qty"
+  "correction_qty",
+  "returned_qty"
  ],
  "fields": [
   {
@@ -173,6 +174,14 @@
    "label": "Correction qty",
    "read_only": 1,
    "description": "Written off to 0 on submit because the batch was flagged empty."
+  },
+  {
+   "fieldname": "returned_qty",
+   "fieldtype": "Float",
+   "label": "Returned qty",
+   "read_only": 1,
+   "no_copy": 1,
+   "description": "Total returned from WIP back to this batch/location. Bookkeeping only — whether a return is still ALLOWED is derived from the WIP balance at that moment."
   }
  ],
  "index_web_pages_for_search": 1,

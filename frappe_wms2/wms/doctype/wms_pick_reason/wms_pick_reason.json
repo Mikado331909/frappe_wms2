@@ -13,17 +13,63 @@
   "column_break_main",
   "applies_to_shortage",
   "applies_to_surplus",
+  "applies_to_cancel_return",
   "description_section",
   "description"
  ],
  "fields": [
-  {"fieldname": "reason", "fieldtype": "Data", "label": "Reason", "in_list_view": 1, "reqd": 1, "unique": 1},
-  {"default": "1", "fieldname": "is_active", "fieldtype": "Check", "label": "Is Active", "in_list_view": 1},
-  {"fieldname": "column_break_main", "fieldtype": "Column Break"},
-  {"default": "1", "fieldname": "applies_to_shortage", "fieldtype": "Check", "label": "Applies to Shortage", "in_list_view": 1, "description": "Selectable when less was picked than proposed, or a batch turned out empty."},
-  {"default": "1", "fieldname": "applies_to_surplus", "fieldtype": "Check", "label": "Applies to Surplus", "in_list_view": 1, "description": "Selectable when more was picked than proposed."},
-  {"fieldname": "description_section", "fieldtype": "Section Break"},
-  {"fieldname": "description", "fieldtype": "Small Text", "label": "Description"}
+  {
+   "fieldname": "reason",
+   "fieldtype": "Data",
+   "label": "Reason",
+   "in_list_view": 1,
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "label": "Is Active",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "column_break_main",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "applies_to_shortage",
+   "fieldtype": "Check",
+   "label": "Applies to Shortage",
+   "in_list_view": 1,
+   "description": "Selectable when less was picked than proposed, or a batch turned out empty."
+  },
+  {
+   "default": "1",
+   "fieldname": "applies_to_surplus",
+   "fieldtype": "Check",
+   "label": "Applies to Surplus",
+   "in_list_view": 1,
+   "description": "Selectable when more was picked than proposed."
+  },
+  {
+   "default": "0",
+   "fieldname": "applies_to_cancel_return",
+   "fieldtype": "Check",
+   "label": "Applies to Cancel / Return",
+   "in_list_view": 1,
+   "description": "Selectable when a submitted pick list is cancelled, or when a quantity is returned from WIP to stock."
+  },
+  {
+   "fieldname": "description_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
@@ -34,9 +80,38 @@
  "naming_rule": "By fieldname",
  "owner": "Administrator",
  "permissions": [
-  {"create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "System Manager", "share": 1, "write": 1},
-  {"create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "Stock Manager", "share": 1, "write": 1},
-  {"email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "Stock User"}
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Stock Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Stock User"
+  }
  ],
  "quick_entry": 1,
  "sort_field": "modified",

@@ -75,6 +75,17 @@ PICK_REASON_SEED = [
     {"reason": "Counting difference", "applies_to_shortage": 1,
      "applies_to_surplus": 1,
      "description": "Difference between administration and physical count."},
+    # Phase 3b: cancel / return of a submitted pick list.
+    {"reason": "Order cancelled", "applies_to_cancel_return": 1,
+     "description": "The customer order behind the pick was cancelled."},
+    {"reason": "Wrong material picked", "applies_to_cancel_return": 1,
+     "description": "Picked material does not match the order; put back."},
+    {"reason": "Too much picked", "applies_to_cancel_return": 1,
+     "description": "Surplus goes back to its original batch and location."},
+    {"reason": "Production not started", "applies_to_cancel_return": 1,
+     "description": "Material returned to stock before production used it."},
+    {"reason": "Pick list entered in error", "applies_to_cancel_return": 1,
+     "description": "The pick list itself was wrong and is reversed in full."},
 ]
 
 
@@ -108,9 +119,13 @@ def ensure_pick_reasons():
     for seed in PICK_REASON_SEED:
         if frappe.db.exists("WMS Pick Reason", seed["reason"]):
             continue
-        frappe.get_doc(dict(seed, doctype="WMS Pick Reason", is_active=1)).insert(
-            ignore_permissions=True
-        )
+        row = dict(seed, doctype="WMS Pick Reason", is_active=1)
+        # Flags default to 0 unless the seed says otherwise, so a cancel
+        # reason never shows up in the shortage picker and vice versa.
+        for flag in ("applies_to_shortage", "applies_to_surplus",
+                     "applies_to_cancel_return"):
+            row.setdefault(flag, 0)
+        frappe.get_doc(row).insert(ignore_permissions=True)
 
 
 # ---------------------------------------------------------------------------

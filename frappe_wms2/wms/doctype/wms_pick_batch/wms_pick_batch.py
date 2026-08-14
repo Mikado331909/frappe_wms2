@@ -264,11 +264,15 @@ def get_listed_qty(pick_batch, per_order=False):
     for row in frappe.get_all(
         "WMS Pick List Item",
         filters={"parent": ("in", lists)},
-        fields=["item_code", "material_request", "qty_to_pick"],
+        fields=["item_code", "material_request", "qty_to_pick", "returned_qty"],
         limit_page_length=0,
     ):
         key = (row.material_request, row.item_code) if per_order else row.item_code
-        out[key] = flt(out.get(key)) + flt(row.qty_to_pick)
+        # Phase 3b: a returned quantity is no longer reserved — it went back
+        # to stock, so the demand behind it opens up again. (A cancelled pick
+        # list drops out entirely: docstatus 2 is excluded above.)
+        reserved = flt(row.qty_to_pick) - flt(row.returned_qty)
+        out[key] = flt(out.get(key)) + max(0.0, reserved)
     return out
 
 
