@@ -15,6 +15,9 @@
   "requires_customer",
   "zero_valuation_receipt",
   "column_break_behaviour",
+  "route_to_customer_warehouse",
+  "requires_bom",
+  "create_concept_invoice_at_intake",
   "enforce_warehouse",
   "notes_section",
   "notes"
@@ -66,11 +69,34 @@
    "fieldtype": "Column Break"
   },
   {
+   "default": "0",
+   "fieldname": "route_to_customer_warehouse",
+   "fieldtype": "Check",
+   "label": "Route to Customer Warehouse",
+   "in_list_view": 1,
+   "description": "Route intake to the customer's own material-specific warehouse (auto-created on first use) instead of the static warehouse below."
+  },
+  {
+   "default": "0",
+   "fieldname": "requires_bom",
+   "fieldtype": "Check",
+   "label": "Requires Active BOM",
+   "description": "Refuse intake unless the item is a raw material in at least one active BOM. Needed when invoicing is derived from shipped finished goods (FOB per-production invoicing)."
+  },
+  {
+   "default": "0",
+   "fieldname": "create_concept_invoice_at_intake",
+   "fieldtype": "Check",
+   "label": "Concept Invoice at Intake",
+   "description": "Create a draft Sales Invoice (Update Stock) when this material is received, and restock it at zero value once that invoice is submitted. FOB-direct: the customer buys the material on arrival."
+  },
+  {
    "fieldname": "enforce_warehouse",
    "fieldtype": "Link",
    "label": "Route Receipts To Warehouse",
    "options": "Warehouse",
-   "description": "Optional. If set, receipt lines with this type must go to (or are routed to) this warehouse, e.g. a customer-stock warehouse."
+   "description": "Optional. If set, receipt lines with this type must go to (or are routed to) this warehouse, e.g. a customer-stock warehouse.",
+   "depends_on": "eval:!doc.route_to_customer_warehouse"
   },
   {
    "fieldname": "notes_section",

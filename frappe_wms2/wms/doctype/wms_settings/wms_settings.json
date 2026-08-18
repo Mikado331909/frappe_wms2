@@ -13,7 +13,13 @@
   "column_break_wip",
   "wip_storage_location",
   "picking_section",
-  "allow_customer_neutral_stock"
+  "allow_customer_neutral_stock",
+  "fob_section",
+  "fabrics_item_group",
+  "column_break_fob",
+  "trimmings_item_group",
+  "customer_warehouse_section",
+  "customer_warehouse_parent"
  ],
  "fields": [
   {
@@ -67,6 +73,43 @@
    "label": "Allow customer-neutral (Own use) stock in customer picks",
    "default": "1",
    "description": "Own-use stock carries no customer, so using it cannot mix customers. Untick to pick strictly customer-owned batches."
+  },
+  {
+   "fieldname": "fob_section",
+   "fieldtype": "Section Break",
+   "label": "FOB material categories",
+   "description": "Which Item Group in YOUR catalogue represents each material category. Used to route FOB (customer-owned) stock to per-customer warehouses. An item's group, or any group above it, must match one of these."
+  },
+  {
+   "fieldname": "fabrics_item_group",
+   "fieldtype": "Link",
+   "label": "Fabrics Item Group",
+   "options": "Item Group",
+   "description": "Item Group (or parent group) covering the first material category."
+  },
+  {
+   "fieldname": "column_break_fob",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "trimmings_item_group",
+   "fieldtype": "Link",
+   "label": "Trimmings Item Group",
+   "options": "Item Group",
+   "description": "Item Group (or parent group) covering the second material category."
+  },
+  {
+   "fieldname": "customer_warehouse_section",
+   "fieldtype": "Section Break",
+   "label": "Customer warehouses"
+  },
+  {
+   "fieldname": "customer_warehouse_parent",
+   "fieldtype": "Link",
+   "label": "Customer Warehouse Parent",
+   "options": "Warehouse",
+   "link_filters": "[[\"Warehouse\", \"company\", \"=\", \"eval:doc.company\"], [\"Warehouse\", \"is_group\", \"=\", 1]]",
+   "description": "Group warehouse the auto-created per-customer warehouses hang under. Leave empty to use the company's root warehouse group."
   }
  ],
  "index_web_pages_for_search": 1,

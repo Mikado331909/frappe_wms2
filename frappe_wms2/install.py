@@ -156,17 +156,22 @@ OWNERSHIP_TYPE_SEED = [
     },
     {
         "ownership_type": "Purchased with customer",
-        "is_active": 0,
+        "is_active": 1,
         "requires_customer": 1,
         "zero_valuation_receipt": 0,
-        "notes": "Type 3 (FOB direct): reserved for a later phase "
-        "(sell-and-restock). Not active in Phase 2a.",
+        "route_to_customer_warehouse": 1,
+        "create_concept_invoice_at_intake": 1,
+        "notes": "Type 3 (FOB direct): received at cost into the customer's own "
+        "warehouse; a concept Sales Invoice is created at intake and the "
+        "material is restocked at zero value when that invoice is submitted.",
     },
     {
         "ownership_type": "Purchased for customer",
-        "is_active": 0,
+        "is_active": 1,
         "requires_customer": 1,
         "zero_valuation_receipt": 0,
+        "route_to_customer_warehouse": 1,
+        "requires_bom": 1,
         "notes": "Type 4 (FOB per production): reserved for a later phase "
         "(per-production invoicing). Not active in Phase 2a.",
     },
@@ -181,9 +186,34 @@ def ensure_ownership_types():
 
     for seed in OWNERSHIP_TYPE_SEED:
         if frappe.db.exists("WMS Ownership Type", seed["ownership_type"]):
+            # Self-managed master: a row the user already has is never
+            # overwritten. The FOB flags below are the exception ONLY while
+            # they are still unset on a row that predates them — a fresh
+            # field on an existing row is not a user edit.
+            _backfill_new_flags(seed)
             continue
         doc = frappe.get_doc(dict(seed, doctype="WMS Ownership Type"))
         doc.insert(ignore_permissions=True)
+
+
+# Flags introduced after the row itself existed. Backfilled only where the
+# stored value is still the field default (0) AND the seed wants 1.
+_BACKFILL_FLAGS = (
+    "route_to_customer_warehouse",
+    "requires_bom",
+    "create_concept_invoice_at_intake",
+)
+
+
+def _backfill_new_flags(seed):
+    name = seed["ownership_type"]
+    updates = {}
+    for flag in _BACKFILL_FLAGS:
+        if seed.get(flag) and not frappe.db.get_value("WMS Ownership Type", name, flag):
+            updates[flag] = 1
+    if updates:
+        frappe.db.set_value("WMS Ownership Type", name, updates)
+        frappe.clear_document_cache("WMS Ownership Type", name)
 
 
 def ensure_storage_location_inventory_dimension():

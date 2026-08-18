@@ -402,6 +402,8 @@ def zero_valuation_buying_price_list():
                 "currency": "EUR",
             }
         ).insert(ignore_permissions=True)
+        # Committed: documents link to it during the same transaction.
+        frappe.db.commit()
     return name
 
 

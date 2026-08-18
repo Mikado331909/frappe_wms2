@@ -1,0 +1,261 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-08-15 09:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "source_section",
+  "source_doctype",
+  "source_name",
+  "source_row",
+  "column_break_source",
+  "customer",
+  "ownership_type",
+  "company",
+  "material_section",
+  "item_code",
+  "batch_no",
+  "qty",
+  "column_break_material",
+  "rate",
+  "warehouse",
+  "storage_location",
+  "price_list",
+  "finished_good_batch",
+  "work_order",
+  "result_section",
+  "sales_invoice",
+  "column_break_result",
+  "restock_stock_entry",
+  "concept_discarded"
+ ],
+ "fields": [
+  {
+   "fieldname": "source_section",
+   "fieldtype": "Section Break",
+   "label": "Source"
+  },
+  {
+   "fieldname": "source_doctype",
+   "fieldtype": "Link",
+   "label": "Source Doctype",
+   "options": "DocType",
+   "read_only": 1,
+   "reqd": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "source_name",
+   "fieldtype": "Dynamic Link",
+   "label": "Source Document",
+   "options": "source_doctype",
+   "read_only": 1,
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "source_row",
+   "fieldtype": "Data",
+   "label": "Source Row",
+   "read_only": 1,
+   "description": "Child row name of the intake line (Type 3) or the Delivery Note line (Type 4)."
+  },
+  {
+   "fieldname": "column_break_source",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Customer",
+   "options": "Customer",
+   "read_only": 1,
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "ownership_type",
+   "fieldtype": "Link",
+   "label": "Ownership Type",
+   "options": "WMS Ownership Type",
+   "read_only": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "read_only": 1
+  },
+  {
+   "fieldname": "material_section",
+   "fieldtype": "Section Break",
+   "label": "Material"
+  },
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "label": "Item",
+   "options": "Item",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "batch_no",
+   "fieldtype": "Link",
+   "label": "Batch",
+   "options": "Batch",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "qty",
+   "fieldtype": "Float",
+   "label": "Qty",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "column_break_material",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "rate",
+   "fieldtype": "Currency",
+   "label": "Rate",
+   "read_only": 1,
+   "description": "Resolved from the customer's Price List — never from cost."
+  },
+  {
+   "fieldname": "price_list",
+   "fieldtype": "Link",
+   "label": "Price List",
+   "options": "Price List",
+   "read_only": 1
+  },
+  {
+   "fieldname": "finished_good_batch",
+   "fieldtype": "Link",
+   "label": "Finished Good Batch",
+   "options": "Batch",
+   "read_only": 1,
+   "description": "Type 4 only: the produced batch (= Work Order) whose shipment triggered this."
+  },
+  {
+   "fieldname": "work_order",
+   "fieldtype": "Link",
+   "label": "Work Order",
+   "options": "Work Order",
+   "read_only": 1
+  },
+  {
+   "fieldname": "result_section",
+   "fieldtype": "Section Break",
+   "label": "Result"
+  },
+  {
+   "fieldname": "sales_invoice",
+   "fieldtype": "Link",
+   "label": "Sales Invoice",
+   "options": "Sales Invoice",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "column_break_result",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "restock_stock_entry",
+   "fieldtype": "Link",
+   "label": "Restock Stock Entry",
+   "options": "Stock Entry",
+   "read_only": 1,
+   "description": "Type 3 only: the zero-valuation restock, created when the concept invoice is submitted."
+  },
+  {
+   "fieldname": "storage_location",
+   "fieldtype": "Link",
+   "label": "Storage Location",
+   "options": "Storage Location",
+   "read_only": 1,
+   "description": "Exact location of the intake row — the restock puts it back here; nothing moves."
+  },
+  {
+   "fieldname": "warehouse",
+   "fieldtype": "Link",
+   "label": "Warehouse",
+   "options": "Warehouse",
+   "read_only": 1,
+   "description": "Customer warehouse the material was received into (Type 3 restock target)."
+  },
+  {
+   "default": "0",
+   "fieldname": "concept_discarded",
+   "fieldtype": "Check",
+   "label": "Concept Discarded",
+   "read_only": 1,
+   "description": "The concept invoice was deleted or cancelled instead of submitted. The material stays at cost, un-invoiced — a valid parked state."
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-15 09:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "WMS",
+ "name": "WMS FOB Sale",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Stock Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User"
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Stock User"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1,
+ "autoname": "hash",
+ "title_field": "customer",
+ "description": "Audit trail for FOB (customer-owned) sales: which intake row or shipment produced which concept invoice, at which price, and — for Type 3 — which restock followed."
+}

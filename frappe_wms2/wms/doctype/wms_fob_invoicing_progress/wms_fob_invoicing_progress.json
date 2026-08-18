@@ -1,0 +1,165 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-08-15 09:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "finished_good_batch",
+  "work_order",
+  "raw_material_batch",
+  "item_code",
+  "column_break_head",
+  "customer",
+  "ownership_type",
+  "company",
+  "qty_section",
+  "consumed_qty",
+  "column_break_qty",
+  "invoiced_qty"
+ ],
+ "fields": [
+  {
+   "fieldname": "finished_good_batch",
+   "fieldtype": "Link",
+   "label": "Finished Good Batch",
+   "options": "Batch",
+   "read_only": 1,
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "work_order",
+   "fieldtype": "Link",
+   "label": "Work Order",
+   "options": "Work Order",
+   "read_only": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "raw_material_batch",
+   "fieldtype": "Link",
+   "label": "Raw Material Batch",
+   "options": "Batch",
+   "read_only": 1,
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "label": "Item",
+   "options": "Item",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "column_break_head",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Customer",
+   "options": "Customer",
+   "read_only": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "ownership_type",
+   "fieldtype": "Link",
+   "label": "Ownership Type",
+   "options": "WMS Ownership Type",
+   "read_only": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "read_only": 1
+  },
+  {
+   "fieldname": "qty_section",
+   "fieldtype": "Section Break",
+   "label": "Quantities"
+  },
+  {
+   "fieldname": "consumed_qty",
+   "fieldtype": "Float",
+   "label": "Consumed qty",
+   "read_only": 1,
+   "in_list_view": 1,
+   "description": "Total of this raw material batch consumed by the Work Order. Read once from the Work Order's Stock Entries; a fixed number."
+  },
+  {
+   "fieldname": "column_break_qty",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "invoiced_qty",
+   "fieldtype": "Float",
+   "label": "Invoiced qty",
+   "read_only": 1,
+   "in_list_view": 1,
+   "description": "Cumulative quantity already put on concept invoices. Never exceeds Consumed qty — that is a hard cap, not a warning."
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-15 09:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "WMS",
+ "name": "WMS FOB Invoicing Progress",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Stock Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User"
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Stock User"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1,
+ "autoname": "hash",
+ "description": "Per (finished-good batch, raw-material batch) ledger that keeps split shipments from double-billing the same consumption."
+}

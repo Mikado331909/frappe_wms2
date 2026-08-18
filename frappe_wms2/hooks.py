@@ -31,17 +31,45 @@ doc_events = {
     "Purchase Receipt": {
         "before_validate": "frappe_wms2.wms.ownership.route_purchase_receipt",
         "validate": "frappe_wms2.wms.ownership.validate_purchase_receipt",
-        "on_submit": "frappe_wms2.wms.ownership.stamp_batches_purchase_receipt",
+        "on_submit": [
+            "frappe_wms2.wms.ownership.stamp_batches_purchase_receipt",
+            # FOB Part 2: Type 3 gets its concept invoice in the same submit.
+            "frappe_wms2.wms.fob_direct.create_concept_invoices_purchase_receipt",
+        ],
     },
     "Stock Entry": {
-        "before_validate": "frappe_wms2.wms.ownership.route_stock_entry",
+        "before_validate": [
+            "frappe_wms2.wms.ownership.route_stock_entry",
+            "frappe_wms2.wms.production.name_finished_good_batch",
+        ],
         "validate": "frappe_wms2.wms.ownership.validate_stock_entry",
-        "on_submit": "frappe_wms2.wms.ownership.stamp_batches_stock_entry",
+        "on_submit": [
+            "frappe_wms2.wms.ownership.stamp_batches_stock_entry",
+            "frappe_wms2.wms.fob_direct.create_concept_invoices_stock_entry",
+        ],
+    },
+    # Phase FOB (Part 1): shipping the finished good invoices the customer's
+    # own Type 4 raw material consumed by that production run.
+    "Delivery Note": {
+        "on_submit": "frappe_wms2.wms.production.invoice_fob_material_on_delivery",
+    },
+    # FOB Part 2: confirming the concept invoice is what triggers the
+    # zero-valuation restock — never the intake itself.
+    "Sales Invoice": {
+        "on_submit": "frappe_wms2.wms.fob_direct.restock_on_invoice_submit",
+        # A discarded concept invoice must remain deletable: the audit row
+        # releases its link and records the discard.
+        "on_trash": "frappe_wms2.wms.fob_direct.discard_concept_invoice",
+        "on_cancel": "frappe_wms2.wms.fob_direct.discard_concept_invoice",
     },
     "Purchase Invoice": {
         "before_validate": "frappe_wms2.wms.ownership.before_validate_purchase_invoice",
     },
 }
+
+# FOB: explicit "you are about to CONFIRM / CANCEL this sale" dialogs on
+# concept invoices, so the two opposite actions cannot be confused.
+doctype_js = {"Sales Invoice": "public/js/fob_sales_invoice.js"}
 
 # Phase 3a: pick list print format is the default for the doctype.
 default_print_format_map = {"WMS Pick List": "WMS Pick List"}

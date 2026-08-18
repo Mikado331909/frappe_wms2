@@ -96,7 +96,11 @@ def _validate_intake_row(row, warehouse_field, rate_field, context):
             )
         row.allow_zero_valuation_rate = 1
 
-    if ot.enforce_warehouse:
+    if ot.get("route_to_customer_warehouse"):
+        # FOB (types 3/4): per-customer, per-material warehouse.
+        _validate_fob_row(row, ot, customer, warehouse_field, context)
+
+    elif ot.enforce_warehouse:
         current = row.get(warehouse_field)
         if not current:
             row.set(warehouse_field, ot.enforce_warehouse)
@@ -118,6 +122,68 @@ def _validate_intake_row(row, warehouse_field, rate_field, context):
         _assert_batch_compatible(row.batch_no, ot_name, customer, context)
 
     return ot
+
+
+def _validate_fob_row(row, ot, customer, warehouse_field, context):
+    """Extra rules that only apply to the FOB ownership types.
+
+    Deliberately additive: nothing here runs for Type 1/2, whose code path is
+    the unchanged `enforce_warehouse` branch.
+    """
+    from frappe_wms2.wms.customer_warehouse import get_warehouse_for_item
+    from frappe_wms2.wms.fob import assert_batchwise_valuation
+
+    prefix = f"{context}: "
+
+    # 0.1 — a customer warehouse mixes cost-valued and zero-valued batches of
+    # the same item, so batch-wise valuation must actually apply to it.
+    assert_batchwise_valuation(row.item_code, context=prefix)
+
+    # 1.1 — closing rule: no BOM, no Type 4 (see requires_bom flag).
+    if ot.get("requires_bom"):
+        _assert_item_in_active_bom(row.item_code, ot.name, prefix)
+
+    # 0.2/0.3 — resolve (and create on first use) the customer warehouse.
+    expected = get_warehouse_for_item(customer, row.item_code, context=prefix)
+    current = row.get(warehouse_field)
+    if not current:
+        row.set(warehouse_field, expected)
+    elif current != expected:
+        frappe.throw(
+            _(
+                "{0}: Ownership Type {1} routes this line to the customer's own "
+                "warehouse {2}, not {3}."
+            ).format(context, frappe.bold(ot.name), frappe.bold(expected),
+                     frappe.bold(current)),
+            title=_("Wrong warehouse"),
+        )
+
+
+def _assert_item_in_active_bom(item_code, ot_name, prefix):
+    """The Type 4 closing rule: the item must be a raw material in at least
+    one active, submitted BOM. Without a BOM there is no way to translate a
+    shipped finished-good quantity into consumed raw material, so the type is
+    structurally impossible for that item."""
+    exists = frappe.db.sql(
+        """
+        select 1
+        from `tabBOM Item` bi
+        inner join `tabBOM` bom on bom.name = bi.parent
+        where bi.item_code = %s and bom.is_active = 1 and bom.docstatus = 1
+        limit 1
+        """,
+        item_code,
+    )
+    if not exists:
+        frappe.throw(
+            _(
+                "{0}Item {1} does not appear as a raw material in any active BOM, "
+                "so it cannot be received under Ownership Type {2}: there would "
+                "be no way to translate a shipped finished-good quantity into "
+                "consumed raw material at invoicing time."
+            ).format(prefix, frappe.bold(item_code), frappe.bold(ot_name)),
+            title=_("No active BOM for this item"),
+        )
 
 
 def _assert_batch_compatible(batch_no, ot_name, customer, context):
@@ -172,11 +238,30 @@ def _route_rows(rows, warehouse_field):
             continue
         if not frappe.db.exists("WMS Ownership Type", ot_name):
             continue  # validate() reports this properly
-        enforced = frappe.get_cached_value(
-            "WMS Ownership Type", ot_name, "enforce_warehouse"
-        )
-        if enforced:
-            row.set(warehouse_field, enforced)
+
+        ot = frappe.get_cached_doc("WMS Ownership Type", ot_name)
+
+        # FOB types (3/4): the warehouse is per CUSTOMER and per material,
+        # created on first use. Type 1/2 keep the static enforce_warehouse
+        # path below, untouched.
+        if ot.get("route_to_customer_warehouse"):
+            customer = row.get(CUSTOMER_FIELD)
+            if not customer or not row.get("item_code"):
+                continue  # validate() reports the missing customer properly
+            row.set(
+                warehouse_field,
+                _resolve_customer_warehouse(row.item_code, customer),
+            )
+            continue
+
+        if ot.enforce_warehouse:
+            row.set(warehouse_field, ot.enforce_warehouse)
+
+
+def _resolve_customer_warehouse(item_code, customer, context=""):
+    from frappe_wms2.wms.customer_warehouse import get_warehouse_for_item
+
+    return get_warehouse_for_item(customer, item_code, context=context)
 
 
 # ---------------------------------------------------------------- validate
