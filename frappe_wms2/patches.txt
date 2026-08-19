@@ -8,3 +8,4 @@ frappe_wms2.patches.v0_4.set_wms_settings_company
 frappe_wms2.patches.v0_5.seed_cancel_return_reasons
 frappe_wms2.patches.v0_6.activate_fob_ownership_types
 frappe_wms2.patches.v0_7.seed_fob_direct_flag
+frappe_wms2.patches.v0_8.reload_wms_settings_location_owner

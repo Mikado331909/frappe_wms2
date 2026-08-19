@@ -45,7 +45,8 @@ def _get_ownership_type(name, context):
         )
 
 
-def _validate_intake_row(row, warehouse_field, rate_field, context):
+def _validate_intake_row(row, warehouse_field, rate_field, context,
+                         location_field="storage_location"):
     """Shared rule for one stock-inward line. Returns the ownership doc."""
     if not _is_stock_item(row.item_code):
         return None
@@ -96,6 +97,10 @@ def _validate_intake_row(row, warehouse_field, rate_field, context):
             )
         row.allow_zero_valuation_rate = 1
 
+    # One location, one owner — applies to EVERY ownership type, so it lives
+    # in the shared path rather than in the FOB branch below.
+    _assert_location_owner(row, customer, context, location_field)
+
     if ot.get("route_to_customer_warehouse"):
         # FOB (types 3/4): per-customer, per-material warehouse.
         _validate_fob_row(row, ot, customer, warehouse_field, context)
@@ -124,6 +129,16 @@ def _validate_intake_row(row, warehouse_field, rate_field, context):
     return ot
 
 
+def _assert_location_owner(row, customer, context, location_field):
+    """A storage location may only hold one owner's stock at a time."""
+    from frappe_wms2.wms.location_owner import assert_location_free_for
+
+    location = row.get(location_field)
+    if not location:
+        return  # the mandatory dimension reports a missing location itself
+    assert_location_free_for(location, customer, context=f"{context}: ")
+
+
 def _validate_fob_row(row, ot, customer, warehouse_field, context):
     """Extra rules that only apply to the FOB ownership types.
 
@@ -143,20 +158,23 @@ def _validate_fob_row(row, ot, customer, warehouse_field, context):
     if ot.get("requires_bom"):
         _assert_item_in_active_bom(row.item_code, ot.name, prefix)
 
-    # 0.2/0.3 — resolve (and create on first use) the customer warehouse.
-    expected = get_warehouse_for_item(customer, row.item_code, context=prefix)
-    current = row.get(warehouse_field)
-    if not current:
-        row.set(warehouse_field, expected)
-    elif current != expected:
-        frappe.throw(
-            _(
-                "{0}: Ownership Type {1} routes this line to the customer's own "
-                "warehouse {2}, not {3}."
-            ).format(context, frappe.bold(ot.name), frappe.bold(expected),
-                     frappe.bold(current)),
-            title=_("Wrong warehouse"),
-        )
+    # 0.2/0.3 — resolve (and create on first use) the customer warehouse, and
+    # always route the line there.
+    #
+    # This ALWAYS overwrites, never throws. Two reasons:
+    #   * There is no legitimate destination for a routed line other than the
+    #     resolved customer warehouse, so correcting is as safe as filling in
+    #     a blank — which this already did.
+    #   * Throwing here was actively harmful: ERPNext's own UI pre-fills a
+    #     default warehouse on a new row, so the mismatch branch fired
+    #     routinely, and because the throw and the just-created Warehouse share
+    #     one transaction, frappe rolled the Warehouse back with it. The error
+    #     then named a warehouse that no longer existed and could not be
+    #     selected anywhere.
+    row.set(
+        warehouse_field,
+        get_warehouse_for_item(customer, row.item_code, context=prefix),
+    )
 
 
 def _assert_item_in_active_bom(item_code, ot_name, prefix):
@@ -290,6 +308,7 @@ def validate_stock_entry(doc, method=None):
             row,
             warehouse_field="t_warehouse",
             rate_field="basic_rate",
+            location_field="to_storage_location",
             context=_("Row {0}").format(row.idx),
         )
 
