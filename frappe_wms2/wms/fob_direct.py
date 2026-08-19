@@ -25,6 +25,7 @@ from frappe_wms2.wms.fob import (
     get_existing_fob_sale,
     resolve_selling_rate,
 )
+from frappe_wms2.wms.ownership import _get_row_batches
 
 OWNERSHIP_FIELD = "wms_ownership_type"
 CUSTOMER_FIELD = "wms_customer"
@@ -101,8 +102,13 @@ def _handle_intake(doc, rows, warehouse_field, location_field="storage_location"
                 title=_("Storage Location missing"),
             )
 
-        batch_no = _row_batch(row)
-        if not batch_no:
+        # The batch comes from the SAME resolver Type 1/2 stamping has used
+        # since Phase 2a: it reads the line's Stock Ledger Entries fresh from
+        # the database rather than trusting the in-memory row, which is not
+        # refreshed when ERPNext auto-creates the batch and its bundle during
+        # submit.
+        batches = _get_row_batches(doc, row)
+        if not batches:
             frappe.throw(
                 _(
                     "{0}: Ownership Type {1} needs a batch — the sale and the "
@@ -110,6 +116,16 @@ def _handle_intake(doc, rows, warehouse_field, location_field="storage_location"
                 ).format(context, frappe.bold(row.get(OWNERSHIP_FIELD))),
                 title=_("Batch missing"),
             )
+        if len(batches) > 1:
+            frappe.throw(
+                _(
+                    "{0}: this line carries {1} batches ({2}). FOB-direct sells "
+                    "one batch per line so the restock can put exactly that "
+                    "batch back."
+                ).format(context, len(batches), ", ".join(sorted(batches))),
+                title=_("More than one batch"),
+            )
+        batch_no = next(iter(batches))
 
         rate, price_list, _currency = resolve_selling_rate(
             customer, row.item_code, company=doc.company, qty=row.qty
@@ -158,27 +174,6 @@ def _handle_intake(doc, rows, warehouse_field, location_field="storage_location"
             indicator="blue",
             alert=True,
         )
-
-
-def _row_batch(row):
-    if row.get("batch_no"):
-        return row.batch_no
-    bundle = row.get("serial_and_batch_bundle")
-    if bundle:
-        batches = frappe.get_all(
-            "Serial and Batch Entry", filters={"parent": bundle}, pluck="batch_no"
-        )
-        batches = [b for b in set(batches) if b]
-        if len(batches) == 1:
-            return batches[0]
-        if len(batches) > 1:
-            frappe.throw(
-                _(
-                    "This line carries {0} batches. FOB-direct sells one batch "
-                    "per line so the restock can put exactly that batch back."
-                ).format(len(batches))
-            )
-    return None
 
 
 def _make_concept_invoice(doc, item):

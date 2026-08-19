@@ -336,3 +336,99 @@ class TestFOBType3(FOBFixtures):
         # Quantities are both present in the same warehouse.
         self.assertEqual(self.batch_qty(item, batch_a, wh), 5)
         self.assertEqual(self.batch_qty(item, batch_b, wh), 5)
+
+    # ------------------------------------------------------- regression
+    def test_auto_created_batch_is_found_by_the_shared_resolver(self):
+        """Auto-batch item, no batch_no supplied anywhere.
+
+        ERPNext creates the batch and its Serial and Batch Bundle during
+        submit without refreshing the in-memory row, so a check that trusts
+        `row.batch_no` sees nothing and refuses with "Batch missing". The
+        concept invoice must be created from the batch the DATABASE has.
+
+        Deliberately does NOT pre-fill batch_no — that would mask the bug.
+        """
+        item = self.new_auto_batch_item(priced=12)
+        loc = self.new_location()
+
+        pr = frappe.get_doc(
+            {
+                "doctype": "Purchase Receipt",
+                "supplier": frappe.db.get_value("Supplier", {}, "name"),
+                "company": COMPANY,
+                "currency": "EUR",
+                "conversion_rate": 1,
+                "items": [
+                    {
+                        "item_code": item,
+                        "qty": 6,
+                        "rate": 5,
+                        "storage_location": loc,
+                        "uom": "Nos",
+                        "stock_uom": "Nos",
+                        "conversion_factor": 1,
+                        "wms_ownership_type": TYPE3,
+                        "wms_customer": self.customer_a,
+                        # no batch_no, no serial_and_batch_bundle on purpose
+                    }
+                ],
+            }
+        )
+        pr.insert(ignore_permissions=True)
+        pr.submit()  # real hook chain: stamping, then the concept invoice
+        self.track("Purchase Receipt", pr.name)
+
+        # A batch really was created by ERPNext for this line...
+        from frappe_wms2.wms.ownership import _get_row_batches
+
+        batches = _get_row_batches(pr, pr.items[0])
+        self.assertEqual(len(batches), 1)
+        auto_batch = next(iter(batches))
+        self.assertNotEqual(auto_batch, pr.items[0].get("batch_no") or "")
+
+        # ...and the concept invoice was created against exactly that batch.
+        sales = self.fob_sales_for(pr.name)
+        self.assertEqual(len(sales), 1)
+        self.assertEqual(sales[0].batch_no, auto_batch)
+        self.assertEqual(flt(sales[0].qty), 6)
+
+        invoice = frappe.get_doc("Sales Invoice", sales[0].sales_invoice)
+        self.track("Sales Invoice", invoice.name)
+        self.assertEqual(invoice.docstatus, 0)
+        self.assertEqual(invoice.items[0].batch_no, auto_batch)
+        self.assertEqual(flt(invoice.items[0].rate), 12)
+
+        # The stamp landed on the auto-created batch too.
+        self.assertEqual(
+            self.batch_stamp(auto_batch).wms_ownership_type, TYPE3
+        )
+
+        # And confirming it restocks that same batch.
+        invoice.submit()
+        se = frappe.get_doc(
+            "Stock Entry",
+            frappe.db.get_value("Stock Entry", {"wms_fob_restock_for": sales[0].name}),
+        )
+        self.track("Stock Entry", se.name)
+        self.assertEqual(se.items[0].batch_no, auto_batch)
+        self.assertEqual(se.items[0].to_storage_location, loc)
+
+    def new_auto_batch_item(self, priced=None):
+        """Batch-tracked item with ERPNext's own automatic batch creation."""
+        from frappe_wms2.tests.setup_records import make_item
+
+        item = make_item(has_batch_no=True)
+        frappe.db.set_value(
+            "Item",
+            item,
+            {
+                "item_group": self.group_trim_child,
+                "create_new_batch": 1,
+                "batch_number_series": f"WMS2AUTO-{self.run_token}-.####",
+            },
+        )
+        frappe.clear_document_cache("Item", item)
+        self.track("Item", item)
+        if priced is not None:
+            self.set_price(item, priced)
+        return item
