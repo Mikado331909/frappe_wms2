@@ -18,10 +18,12 @@
   "fabrics_item_group",
   "column_break_fob",
   "trimmings_item_group",
-  "customer_warehouse_section",
-  "customer_warehouse_parent",
   "location_owner_section",
-  "allow_own_stock_with_customer_stock"
+  "allow_own_stock_with_customer_stock",
+  "material_warehouse_section",
+  "fabrics_warehouse",
+  "column_break_matwh",
+  "trimmings_warehouse"
  ],
  "fields": [
   {
@@ -101,19 +103,6 @@
    "description": "Item Group (or parent group) covering the second material category."
   },
   {
-   "fieldname": "customer_warehouse_section",
-   "fieldtype": "Section Break",
-   "label": "Customer warehouses"
-  },
-  {
-   "fieldname": "customer_warehouse_parent",
-   "fieldtype": "Link",
-   "label": "Customer Warehouse Parent",
-   "options": "Warehouse",
-   "link_filters": "[[\"Warehouse\", \"company\", \"=\", \"eval:doc.company\"], [\"Warehouse\", \"is_group\", \"=\", 1]]",
-   "description": "Group warehouse the auto-created per-customer warehouses hang under. Leave empty to use the company's root warehouse group."
-  },
-  {
    "fieldname": "location_owner_section",
    "fieldtype": "Section Break",
    "label": "Location ownership"
@@ -124,6 +113,34 @@
    "fieldtype": "Check",
    "label": "Allow own stock to share a location with customer stock",
    "description": "OFF (default): a storage location holds one owner's stock at a time — the company's own stock and a customer's stock never share a location. ON: own stock is exempt and may share. Stock of two DIFFERENT customers is never allowed to share a location, whatever this is set to."
+  },
+  {
+   "fieldname": "material_warehouse_section",
+   "fieldtype": "Section Break",
+   "label": "Material warehouses",
+   "description": "Where stock of each material category is received — for every ownership type alike. Ownership is separated by the batch stamp and by the one-owner-per-location rule, not by separate warehouses."
+  },
+  {
+   "fieldname": "fabrics_warehouse",
+   "fieldtype": "Link",
+   "label": "Fabrics Warehouse",
+   "options": "Warehouse",
+   "link_filters": "[[\"Warehouse\", \"company\", \"=\", \"eval:doc.company\"], [\"Warehouse\", \"is_group\", \"=\", 0]]",
+   "depends_on": "company",
+   "description": "Own warehouse for the first material category."
+  },
+  {
+   "fieldname": "column_break_matwh",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "trimmings_warehouse",
+   "fieldtype": "Link",
+   "label": "Trimmings Warehouse",
+   "options": "Warehouse",
+   "link_filters": "[[\"Warehouse\", \"company\", \"=\", \"eval:doc.company\"], [\"Warehouse\", \"is_group\", \"=\", 0]]",
+   "depends_on": "company",
+   "description": "Own warehouse for the second material category."
   }
  ],
  "index_web_pages_for_search": 1,

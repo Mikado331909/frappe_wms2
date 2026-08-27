@@ -15,8 +15,8 @@ from frappe_wms2.tests.setup_records import (
     make_purchase_receipt,
 )
 from frappe_wms2.tests.test_fob_type4 import FOBFixtures
-from frappe_wms2.wms.customer_warehouse import get_or_create_customer_warehouse
 from frappe_wms2.wms.fob import TRIMMINGS
+from frappe_wms2.wms.material_warehouse import get_material_warehouse
 from frappe_wms2.wms.location_owner import (
     OWN_STOCK,
     resolve_location_owner,
@@ -43,9 +43,10 @@ class TestLocationOwner(FOBFixtures):
     # ---------------------------------------------------------- factories
 
     def receive_own(self, location, qty=5, item=None, batch=None,
-                    warehouse=WAREHOUSE):
+                    warehouse=None):
         item = item or self.new_material_item()
         batch = batch or self.track("Batch", make_batch(item))
+        warehouse = warehouse or get_material_warehouse(TRIMMINGS)
         make_purchase_receipt(
             [{
                 "item_code": item, "qty": qty, "rate": 2,
@@ -57,9 +58,10 @@ class TestLocationOwner(FOBFixtures):
         return item, batch
 
     def receive_type2(self, location, customer, qty=5, item=None, batch=None,
-                      warehouse=WAREHOUSE):
+                      warehouse=None):
         item = item or self.new_material_item()
         batch = batch or self.track("Batch", make_batch(item))
+        warehouse = warehouse or get_material_warehouse(TRIMMINGS)
         make_purchase_receipt(
             [{
                 "item_code": item, "qty": qty, "rate": 0,
@@ -78,9 +80,10 @@ class TestLocationOwner(FOBFixtures):
                                       ownership=TYPE4, rate=3)
         return item, batch
 
-    def issue_all(self, item, batch, location, qty, warehouse=WAREHOUSE):
+    def issue_all(self, item, batch, location, qty, warehouse=None):
         """Empty a (batch, location) again — a Material Issue is not intake,
         so the rule does not apply to it."""
+        warehouse = warehouse or get_material_warehouse(TRIMMINGS)
         cost_center, adjustment = company_accounts()
         se = frappe.get_doc(
             {
@@ -104,10 +107,11 @@ class TestLocationOwner(FOBFixtures):
         return se
 
     def relocate(self, item, batch, qty, from_location, to_location,
-                 warehouse=WAREHOUSE):
+                 warehouse=None):
         """Move stock between locations. Material Transfer is NOT covered by
         the intake rule — this is the documented backdoor, used here to build
         a pre-existing conflict on purpose."""
+        warehouse = warehouse or get_material_warehouse(TRIMMINGS)
         se = frappe.get_doc(
             {
                 "doctype": "Stock Entry",
@@ -206,7 +210,7 @@ class TestLocationOwner(FOBFixtures):
         self.assertEqual(resolve_location_owner(loc), self.customer_a)
 
         # It really landed there (in the customer's own warehouse).
-        wh = get_or_create_customer_warehouse(self.customer_a, TRIMMINGS)
+        wh = get_material_warehouse(TRIMMINGS)
         qty = frappe.db.sql(
             """select sum(sle.actual_qty) from `tabStock Ledger Entry` sle
                where sle.item_code=%s and sle.warehouse=%s
@@ -275,25 +279,24 @@ class TestLocationOwner(FOBFixtures):
         self.assertIn("MORE THAN ONE", message)
         frappe.db.rollback()
 
-    # ------------------------------------------------ Item 1 regression
-    def test_item1_prefilled_wrong_warehouse_is_corrected_not_refused(self):
-        """ERPNext's UI pre-fills a default warehouse on a new row. That used
-        to hit a throw which rolled back the customer warehouse created in the
-        same transaction — the error then named a warehouse that no longer
-        existed."""
+    # ------------------------------------------------ routing regression
+    def test_routed_line_with_prefilled_warehouse_is_corrected(self):
+        """ERPNext's UI pre-fills a default warehouse on a new row. The line
+        must be corrected to the configured material warehouse, silently.
+
+        (The original version of this test also proved that the correction did
+        not roll back an auto-created customer warehouse. Customer warehouses
+        are gone, so nothing is created here at all — which is now asserted
+        instead.)"""
         item = self.new_material_item(priced=6)
         finished = self.new_finished_item()
         self.make_bom(finished, [(item, 1)])
         loc = self.new_location()
         batch = self.track("Batch", make_batch(item))
 
-        expected = get_or_create_customer_warehouse(self.customer_b, TRIMMINGS)
-        # Make sure the resolver would have to CREATE it, as on a first receipt.
-        frappe.delete_doc("Warehouse", expected, force=True, ignore_permissions=True)
-        frappe.db.commit()
-        self.assertFalse(frappe.db.exists("Warehouse", expected))
+        expected = get_material_warehouse(TRIMMINGS)
+        warehouses_before = frappe.db.count("Warehouse")
 
-        # Row arrives pre-filled with the WRONG warehouse (ERPNext's default).
         pr = make_purchase_receipt(
             [{
                 "item_code": item, "qty": 4, "rate": 3,
@@ -304,13 +307,9 @@ class TestLocationOwner(FOBFixtures):
             }]
         )
 
-        # Corrected silently, no error.
         self.assertEqual(pr.items[0].warehouse, expected)
-
-        # And the warehouse really persisted — it was not rolled back.
-        frappe.db.commit()
-        self.assertTrue(frappe.db.exists("Warehouse", expected))
-        self.track("Warehouse", expected)
+        # Nothing was created as a side effect.
+        self.assertEqual(frappe.db.count("Warehouse"), warehouses_before)
 
         sle = frappe.db.get_value(
             "Stock Ledger Entry",

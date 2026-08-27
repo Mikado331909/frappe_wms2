@@ -72,9 +72,9 @@
    "default": "0",
    "fieldname": "route_to_customer_warehouse",
    "fieldtype": "Check",
-   "label": "Route to Customer Warehouse",
+   "label": "Route to Material Warehouse",
    "in_list_view": 1,
-   "description": "Route intake to the customer's own material-specific warehouse (auto-created on first use) instead of the static warehouse below."
+   "description": "Route intake to the Fabrics/Trimmings warehouse configured in WMS Settings, resolved from the item's material category, instead of the static warehouse below."
   },
   {
    "default": "0",

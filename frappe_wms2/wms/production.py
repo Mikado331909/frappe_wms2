@@ -19,8 +19,16 @@ from frappe_wms2.wms.fob import resolve_selling_rate
 OWNERSHIP_FIELD = "wms_ownership_type"
 CUSTOMER_FIELD = "wms_customer"
 
-# Purposes whose Stock Entries consume raw material for a Work Order.
-CONSUMPTION_PURPOSES = ("Manufacture", "Material Transfer for Manufacture")
+# Purposes whose Stock Entries genuinely CONSUME raw material for a Work
+# Order — i.e. the material is embodied in the finished good.
+#
+# "Material Transfer for Manufacture" is deliberately NOT in this list. It is
+# the same physical material at an earlier stage: it leaves the source
+# warehouse for Work-In-Progress, and later leaves Work-In-Progress via
+# "Manufacture". Counting both negative legs counted every unit twice.
+# Verified empirically on 16.26.2 with a hand-counted Work Order: 20 units
+# used, both legs summed to 40, the Manufacture leg alone to 20.
+CONSUMPTION_PURPOSES = ("Manufacture", "Material Consumption for Manufacture")
 
 
 # ------------------------------------------------ 0.5 finished-good batches

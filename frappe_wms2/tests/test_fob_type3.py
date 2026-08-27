@@ -9,8 +9,8 @@ from frappe.utils import flt
 
 from frappe_wms2.tests.setup_records import COMPANY, WAREHOUSE, make_batch
 from frappe_wms2.tests.test_fob_type4 import FOBFixtures
-from frappe_wms2.wms.customer_warehouse import get_or_create_customer_warehouse
 from frappe_wms2.wms.fob import TRIMMINGS
+from frappe_wms2.wms.material_warehouse import get_material_warehouse
 
 TYPE3 = "Purchased with customer"
 TYPE2 = "Supplied by customer"
@@ -22,7 +22,7 @@ class TestFOBType3(FOBFixtures):
 
     # ---------------------------------------------------------- helpers
 
-    def type3_receipt(self, item, qty, location, rate=4, customer=None, batch=None):
+    def type3_receipt(self, item, qty, location, rate=4, customer=None, batch=None):  # noqa: E501
         return self.fob_receipt(
             item, qty, location, customer or self.customer_a,
             ownership=TYPE3, rate=rate, batch=batch,
@@ -52,13 +52,15 @@ class TestFOBType3(FOBFixtures):
         )
 
     # ------------------------------------------------------------------ S1
-    def test_s1_type3_intake_at_cost_in_customer_warehouse(self):
+    def test_s1_type3_intake_at_cost_in_material_warehouse(self):
         item = self.new_material_item(priced=11)
         loc = self.new_location()
         pr, batch = self.type3_receipt(item, 10, loc, rate=4)
 
-        expected_wh = get_or_create_customer_warehouse(self.customer_a, TRIMMINGS)
+        expected_wh = get_material_warehouse(TRIMMINGS)
         self.assertEqual(pr.items[0].warehouse, expected_wh)
+        self.assertEqual(expected_wh, self.wh_trimmings)   # the company's own
+        self.assertNotIn(self.customer_a, expected_wh)
 
         sle = frappe.db.get_value(
             "Stock Ledger Entry",
@@ -289,7 +291,7 @@ class TestFOBType3(FOBFixtures):
         """A still-at-cost Type 3 batch and an already-zero-valued batch of
         the SAME item in the SAME customer warehouse keep their own rates."""
         item = self.new_material_item(priced=11)
-        wh = get_or_create_customer_warehouse(self.customer_a, TRIMMINGS)
+        wh = get_material_warehouse(TRIMMINGS)
 
         # Batch A: Type 3, sold and restocked -> ends up at zero value.
         loc_a = self.new_location()
@@ -432,3 +434,77 @@ class TestFOBType3(FOBFixtures):
         if priced is not None:
             self.set_price(item, priced)
         return item
+
+    # ------------------------------------- value per customer (new report)
+    def test_value_per_customer_report(self):
+        """Replaces what a per-customer warehouse balance used to show.
+
+        Real current valuation per batch, grouped by ownership type — zeros
+        included, because a zero is the honest figure for customer-supplied
+        and already-invoiced stock.
+        """
+        from frappe_wms2.wms.customer_value import (
+            get_customer_stock_summary,
+            get_customer_stock_value,
+        )
+        from frappe_wms2.tests.setup_records import make_purchase_receipt
+
+        customer = self.new_customer(f"VAL{frappe.generate_hash(length=4)}")
+        # This customer needs the same selling Price List as the fixtures'.
+        frappe.db.set_value("Customer", customer, "default_price_list", self.price_list)
+        frappe.db.commit()
+        frappe.clear_document_cache("Customer", customer)
+
+        # A not-yet-invoiced Type 3 batch: real cost, 5 x 6 = 30.
+        item3 = self.new_material_item(priced=15)
+        loc3 = self.new_location()
+        pr3, batch3 = self.type3_receipt(item3, 5, loc3, rate=6, customer=customer)
+
+        # A Type 2 batch for the same customer: zero-valued by design.
+        item2 = self.new_material_item()
+        loc2 = self.new_location()
+        batch2 = self.track("Batch", make_batch(item2))
+        make_purchase_receipt(
+            [{
+                "item_code": item2, "qty": 8, "rate": 0,
+                "warehouse": self.wh_trimmings, "storage_location": loc2,
+                "use_serial_batch_fields": 1, "batch_no": batch2,
+                "wms_ownership_type": TYPE2, "wms_customer": customer,
+            }]
+        )
+
+        rows = {r["batch_no"]: r for r in get_customer_stock_value(customer=customer)}
+        self.assertEqual(set(rows), {batch3, batch2})
+
+        self.assertEqual(rows[batch3]["ownership_type"], TYPE3)
+        self.assertEqual(flt(rows[batch3]["qty"]), 5)
+        self.assertEqual(flt(rows[batch3]["value"]), 30)   # real cost
+
+        self.assertEqual(rows[batch2]["ownership_type"], TYPE2)
+        self.assertEqual(flt(rows[batch2]["qty"]), 8)
+        self.assertEqual(flt(rows[batch2]["value"]), 0)    # honestly zero
+
+        # Rolled up per ownership type.
+        summary = get_customer_stock_summary(customer=customer)
+        by_type = {r["ownership_type"]: r for r in summary["rows"]}
+        self.assertEqual(flt(by_type[TYPE3]["value"]), 30)
+        self.assertEqual(flt(by_type[TYPE2]["value"]), 0)
+        self.assertEqual(len(summary["totals"]), 1)
+        self.assertEqual(flt(summary["totals"][0]["value"]), 30)
+
+        # Another customer's stock never leaks in.
+        other = [r for r in get_customer_stock_value(customer=self.customer_a)
+                 if r["batch_no"] in (batch2, batch3)]
+        self.assertEqual(other, [])
+
+        # Confirming the Type 3 invoice drops that batch to zero value —
+        # the report follows the ledger, with nothing to reset by hand.
+        invoice = frappe.get_doc(
+            "Sales Invoice", self.fob_sales_for(pr3.name)[0].sales_invoice
+        )
+        self.track("Sales Invoice", invoice.name)
+        invoice.submit()
+
+        after = {r["batch_no"]: r for r in get_customer_stock_value(customer=customer)}
+        self.assertEqual(flt(after[batch3]["qty"]), 5)     # still held
+        self.assertEqual(flt(after[batch3]["value"]), 0)   # now zero-valued

@@ -12,8 +12,8 @@ from frappe.utils import flt, nowdate
 
 from frappe_wms2.tests.setup_records import COMPANY, WAREHOUSE, make_batch, make_item
 from frappe_wms2.tests.test_picking_phase3a import PickingFixtures
-from frappe_wms2.wms.customer_warehouse import get_or_create_customer_warehouse
 from frappe_wms2.wms.fob import FABRICS, TRIMMINGS
+from frappe_wms2.wms.material_warehouse import get_material_warehouse
 
 TYPE4 = "Purchased for customer"
 OWN_USE = "Own use"
@@ -30,6 +30,7 @@ class FOBFixtures(PickingFixtures):
     def setUpClass(cls):
         super().setUpClass()
         cls.setup_material_groups()
+        cls.setup_material_warehouses()
         cls.setup_price_list()
 
     # ------------------------------------------------------------ fixtures
@@ -58,6 +59,31 @@ class FOBFixtures(PickingFixtures):
             "WMS Settings", "trimmings_item_group", cls.group_trimmings
         )
         frappe.clear_cache(doctype="WMS Settings")
+
+    @classmethod
+    def setup_material_warehouses(cls):
+        """The company's OWN two material warehouses — no per-customer ones
+        exist any more."""
+        abbr = frappe.db.get_value("Company", COMPANY, "abbr")
+        cls.wh_fabrics = cls.make_warehouse(f"WMS Fabrics {cls.run_token}", abbr)
+        cls.wh_trimmings = cls.make_warehouse(f"WMS Trimmings {cls.run_token}", abbr)
+        frappe.db.set_single_value("WMS Settings", "fabrics_warehouse", cls.wh_fabrics)
+        frappe.db.set_single_value(
+            "WMS Settings", "trimmings_warehouse", cls.wh_trimmings
+        )
+        frappe.db.commit()
+        frappe.clear_cache(doctype="WMS Settings")
+
+    @classmethod
+    def make_warehouse(cls, name, abbr):
+        full = f"{name} - {abbr}"
+        if not frappe.db.exists("Warehouse", full):
+            frappe.get_doc(
+                {"doctype": "Warehouse", "warehouse_name": name, "company": COMPANY}
+            ).insert(ignore_permissions=True)
+            frappe.db.commit()
+        cls.track("Warehouse", full)
+        return full
 
     @classmethod
     def make_group(cls, name, parent):
@@ -182,7 +208,7 @@ class FOBFixtures(PickingFixtures):
 
 class TestFOBType4(FOBFixtures):
     # ------------------------------------------------------------------ T1
-    def test_t1_type4_intake_routes_to_customer_warehouse(self):
+    def test_t1_type4_intake_routes_to_material_warehouse(self):
         raw = self.new_material_item(priced=7.5)
         finished = self.new_finished_item()
         self.make_bom(finished, [(raw, 2)])
@@ -190,11 +216,15 @@ class TestFOBType4(FOBFixtures):
         loc = self.new_location()
         pr, batch = self.fob_receipt(raw, 10, loc, self.customer_a, rate=3)
 
-        expected_wh = get_or_create_customer_warehouse(self.customer_a, TRIMMINGS)
+        # The company's own trimmings warehouse — never a per-customer one.
+        expected_wh = get_material_warehouse(TRIMMINGS)
         self.assertEqual(pr.items[0].warehouse, expected_wh)
-        self.assertIn(self.customer_a, expected_wh)
-        # Named after the CONFIGURED group, not a hardcoded word.
-        self.assertIn(self.group_trimmings, expected_wh)
+        self.assertEqual(expected_wh, self.wh_trimmings)
+        self.assertNotIn(self.customer_a, expected_wh)
+        # No warehouse was created as a side effect of this receipt.
+        self.assertFalse(
+            frappe.db.exists("Warehouse", {"warehouse_name": ("like", f"%{self.customer_a}%")})
+        )
 
         # Real cost, not zero valuation.
         sle = frappe.db.get_value(
@@ -587,14 +617,14 @@ class TestFOBType4(FOBFixtures):
         )
 
     # ------------------------------------------------------------------ T7
-    def test_t7_batchwise_valuation_isolation_in_customer_warehouse(self):
+    def test_t7_batchwise_valuation_isolation_in_material_warehouse(self):
         from frappe_wms2.wms.fob import uses_batchwise_valuation
 
         raw = self.new_material_item(priced=9)
         finished = self.new_finished_item()
         self.make_bom(finished, [(raw, 1)])
 
-        wh = get_or_create_customer_warehouse(self.customer_a, TRIMMINGS)
+        wh = get_material_warehouse(TRIMMINGS)
 
         # A Type 4 batch at cost 5, and a second batch of the SAME item at
         # cost 50, in the same customer warehouse.

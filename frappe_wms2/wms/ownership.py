@@ -145,8 +145,8 @@ def _validate_fob_row(row, ot, customer, warehouse_field, context):
     Deliberately additive: nothing here runs for Type 1/2, whose code path is
     the unchanged `enforce_warehouse` branch.
     """
-    from frappe_wms2.wms.customer_warehouse import get_warehouse_for_item
     from frappe_wms2.wms.fob import assert_batchwise_valuation
+    from frappe_wms2.wms.material_warehouse import get_warehouse_for_item
 
     prefix = f"{context}: "
 
@@ -158,8 +158,10 @@ def _validate_fob_row(row, ot, customer, warehouse_field, context):
     if ot.get("requires_bom"):
         _assert_item_in_active_bom(row.item_code, ot.name, prefix)
 
-    # 0.2/0.3 — resolve (and create on first use) the customer warehouse, and
-    # always route the line there.
+    # Route the line to the company's OWN warehouse for the item's material
+    # category (WMS Settings). No per-customer warehouse exists any more:
+    # ownership is carried by the batch stamp and enforced on the floor by
+    # the one-owner-per-location rule.
     #
     # This ALWAYS overwrites, never throws. Two reasons:
     #   * There is no legitimate destination for a routed line other than the
@@ -173,7 +175,7 @@ def _validate_fob_row(row, ot, customer, warehouse_field, context):
     #     selected anywhere.
     row.set(
         warehouse_field,
-        get_warehouse_for_item(customer, row.item_code, context=prefix),
+        get_warehouse_for_item(row.item_code, company=_row_company(row), context=prefix),
     )
 
 
@@ -263,23 +265,29 @@ def _route_rows(rows, warehouse_field):
         # created on first use. Type 1/2 keep the static enforce_warehouse
         # path below, untouched.
         if ot.get("route_to_customer_warehouse"):
-            customer = row.get(CUSTOMER_FIELD)
-            if not customer or not row.get("item_code"):
-                continue  # validate() reports the missing customer properly
-            row.set(
-                warehouse_field,
-                _resolve_customer_warehouse(row.item_code, customer),
-            )
+            # Destination depends only on the item's material category now,
+            # not on the customer.
+            if not row.get("item_code"):
+                continue
+            row.set(warehouse_field, _resolve_material_warehouse(row.item_code))
             continue
 
         if ot.enforce_warehouse:
             row.set(warehouse_field, ot.enforce_warehouse)
 
 
-def _resolve_customer_warehouse(item_code, customer, context=""):
-    from frappe_wms2.wms.customer_warehouse import get_warehouse_for_item
+def _resolve_material_warehouse(item_code, context=""):
+    from frappe_wms2.wms.material_warehouse import get_warehouse_for_item
 
-    return get_warehouse_for_item(customer, item_code, context=context)
+    return get_warehouse_for_item(item_code, context=context)
+
+
+def _row_company(row):
+    return row.get("company") or (
+        frappe.db.get_value(row.parenttype, row.parent, "company")
+        if row.get("parent") and row.get("parenttype")
+        else None
+    )
 
 
 # ---------------------------------------------------------------- validate
