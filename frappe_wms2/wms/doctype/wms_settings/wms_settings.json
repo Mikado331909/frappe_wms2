@@ -50,7 +50,7 @@
    "label": "WIP Warehouse",
    "options": "Warehouse",
    "description": "Simple WIP pot for picked material. Only warehouses of the company selected above are offered.",
-   "link_filters": "[[\"Warehouse\", \"company\", \"=\", \"eval:doc.company\"], [\"Warehouse\", \"is_group\", \"=\", 0]]",
+   "link_filters": "[[\"Warehouse\", \"company\", \"=\", \"eval:doc.company\"], [\"Warehouse\", \"is_group\", \"=\", 0], [\"Warehouse\", \"disabled\", \"=\", 0]]",
    "depends_on": "company"
   },
   {
@@ -125,7 +125,7 @@
    "fieldtype": "Link",
    "label": "Fabrics Warehouse",
    "options": "Warehouse",
-   "link_filters": "[[\"Warehouse\", \"company\", \"=\", \"eval:doc.company\"], [\"Warehouse\", \"is_group\", \"=\", 0]]",
+   "link_filters": "[[\"Warehouse\", \"company\", \"=\", \"eval:doc.company\"], [\"Warehouse\", \"is_group\", \"=\", 0], [\"Warehouse\", \"disabled\", \"=\", 0]]",
    "depends_on": "company",
    "description": "Own warehouse for the first material category."
   },
@@ -138,7 +138,7 @@
    "fieldtype": "Link",
    "label": "Trimmings Warehouse",
    "options": "Warehouse",
-   "link_filters": "[[\"Warehouse\", \"company\", \"=\", \"eval:doc.company\"], [\"Warehouse\", \"is_group\", \"=\", 0]]",
+   "link_filters": "[[\"Warehouse\", \"company\", \"=\", \"eval:doc.company\"], [\"Warehouse\", \"is_group\", \"=\", 0], [\"Warehouse\", \"disabled\", \"=\", 0]]",
    "depends_on": "company",
    "description": "Own warehouse for the second material category."
   }

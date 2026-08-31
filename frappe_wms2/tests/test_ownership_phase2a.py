@@ -42,6 +42,7 @@ from frappe_wms2.tests.setup_records import (
     make_item,
     make_purchase_receipt,
     make_stock_entry,
+    material_warehouse,
     setup_gate_records,
     sle_batch_qty_map,
     throwaway_location_code,
@@ -73,34 +74,15 @@ class TestOwnershipPhase2a(TestBase):
         for name in (CUSTOMER_A, CUSTOMER_B):
             get_or_create_customer(name)
 
-        cls.consignment_wh = cls.get_or_create_consignment_warehouse()
+        # v0.9: Type 2 routes to the company's own material warehouse, the
+        # same as every other type — there is no separate consignment
+        # warehouse any more.
+        cls.consignment_wh = material_warehouse()
         for code in (CL1, CL2):
             get_or_create_location(code, cls.consignment_wh)
 
-        # Self-managed config: route customer-supplied stock to its own
-        # warehouse (exactly what a key user would set in the UI).
-        frappe.db.set_value(
-            "WMS Ownership Type",
-            SUPPLIED,
-            "enforce_warehouse",
-            cls.consignment_wh,
-            update_modified=False,
-        )
-        frappe.clear_document_cache("WMS Ownership Type", SUPPLIED)
-
-    @classmethod
-    def get_or_create_consignment_warehouse(cls):
-        abbr = frappe.db.get_value("Company", COMPANY, "abbr")
-        name = f"{CONSIGNMENT_WH_NAME} - {abbr}"
-        if not frappe.db.exists("Warehouse", name):
-            frappe.get_doc(
-                {
-                    "doctype": "Warehouse",
-                    "warehouse_name": CONSIGNMENT_WH_NAME,
-                    "company": COMPANY,
-                }
-            ).insert(ignore_permissions=True)
-        return name
+        # No enforce_warehouse is configured any more: routing follows the
+        # item's material category from WMS Settings.
 
     # ------------------------------------------------------------------ T1
     def test_t1_own_use_receipt_posts_at_cost(self):
@@ -156,7 +138,7 @@ class TestOwnershipPhase2a(TestBase):
             }]
         )
 
-        # Routed to the consignment warehouse.
+        # Routed to the company's own material warehouse.
         self.assertEqual(pr.items[0].warehouse, self.consignment_wh)
 
         # Quantity present, value ZERO, on the stock ledger.

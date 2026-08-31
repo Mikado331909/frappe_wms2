@@ -101,6 +101,12 @@ def setup_gate_records():
     get_or_create_company()
     get_or_create_warehouse()
 
+    # After the company and warehouse exist: since v0.9 every customer-owned
+    # type is routed by material category, so the shared fixtures configure
+    # one — two Item Groups and, by default, the gate warehouse for both, so
+    # expectations written before material routing keep holding.
+    ensure_material_config()
+
     for code in (L1, L2):
         get_or_create_location(code)
     get_or_create_supplier()
@@ -184,6 +190,55 @@ def restore_global_singles():
             if frappe.db.get_single_value(doctype, field) != value:
                 frappe.db.set_single_value(doctype, field, value)
         frappe.clear_cache(doctype=doctype)
+
+
+MATERIAL_GROUPS = {"fabrics": "WMS2 Gate Fabrics", "trimmings": "WMS2 Gate Trimmings"}
+
+
+def material_group(kind="trimmings"):
+    """The Item Group the test site treats as that material category."""
+    return MATERIAL_GROUPS[kind]
+
+
+def material_warehouse(kind="trimmings_warehouse"):
+    """Whatever WMS Settings currently maps that material to."""
+    return frappe.db.get_single_value("WMS Settings", kind)
+
+
+@creates_test_data
+def ensure_material_config(fabrics_warehouse=None, trimmings_warehouse=None):
+    """Material Item Groups + the warehouses each maps to.
+
+    Both default to the gate warehouse: tests written before material routing
+    existed keep landing exactly where they did. Modules that care about the
+    split (the FOB ones) point them at two different warehouses themselves.
+    """
+    root = (
+        frappe.db.get_value("Item Group", {"is_group": 1, "parent_item_group": ""})
+        or "All Item Groups"
+    )
+    for key, name in MATERIAL_GROUPS.items():
+        if not frappe.db.exists("Item Group", name):
+            frappe.get_doc(
+                {
+                    "doctype": "Item Group",
+                    "item_group_name": name,
+                    "parent_item_group": root,
+                    "is_group": 1,
+                }
+            ).insert(ignore_permissions=True)
+            frappe.db.commit()
+
+    frappe.db.set_single_value(
+        "WMS Settings",
+        {
+            "fabrics_item_group": MATERIAL_GROUPS["fabrics"],
+            "trimmings_item_group": MATERIAL_GROUPS["trimmings"],
+            "fabrics_warehouse": fabrics_warehouse or WAREHOUSE,
+            "trimmings_warehouse": trimmings_warehouse or WAREHOUSE,
+        },
+    )
+    frappe.clear_cache(doctype="WMS Settings")
 
 
 @creates_test_data
@@ -302,14 +357,16 @@ def _leaf_customer_group():
 
 
 @creates_test_data
-def make_item(has_batch_no=False):
+def make_item(has_batch_no=False, item_group=None):
     code = f"WMS2-GATE-{frappe.generate_hash(length=8).upper()}"
     frappe.get_doc(
         {
             "doctype": "Item",
             "item_code": code,
             "item_name": code,
-            "item_group": "All Item Groups",
+            # Under a configured material group by default: types 2/3/4 are
+            # all material-routed since v0.9 and refuse an unclassified item.
+            "item_group": item_group or MATERIAL_GROUPS["trimmings"],
             "stock_uom": "Nos",
             "is_stock_item": 1,
             "has_batch_no": 1 if has_batch_no else 0,

@@ -7,7 +7,9 @@
 # - zero_valuation_receipt -> line rate must be 0 and the line is received
 #   with allow_zero_valuation_rate, so quantity is tracked (incl. per
 #   storage location) while stock value stays 0.
-# - enforce_warehouse (optional) -> the line is routed to that warehouse
+# - enforce_warehouse (optional) -> the line is routed to that fixed
+#   warehouse. No seeded type uses this any more (Type 2 moved to material
+#   routing in v0.9); it stays for user-defined types.
 #   (auto-filled when empty, rejected when different).
 # - On submit, Ownership Type + Customer are stamped onto every Batch the
 #   line produced. Batches are resolved through the Serial and Batch Bundle
@@ -102,8 +104,8 @@ def _validate_intake_row(row, warehouse_field, rate_field, context,
     _assert_location_owner(row, customer, context, location_field)
 
     if ot.get("route_to_customer_warehouse"):
-        # FOB (types 3/4): per-customer, per-material warehouse.
-        _validate_fob_row(row, ot, customer, warehouse_field, context)
+        # Types 2/3/4: routed to the company's own material warehouse.
+        _validate_routed_row(row, ot, customer, warehouse_field, context)
 
     elif ot.enforce_warehouse:
         current = row.get(warehouse_field)
@@ -139,11 +141,14 @@ def _assert_location_owner(row, customer, context, location_field):
     assert_location_free_for(location, customer, context=f"{context}: ")
 
 
-def _validate_fob_row(row, ot, customer, warehouse_field, context):
-    """Extra rules that only apply to the FOB ownership types.
+def _validate_routed_row(row, ot, customer, warehouse_field, context):
+    """Rules for a line routed to a material warehouse.
 
-    Deliberately additive: nothing here runs for Type 1/2, whose code path is
-    the unchanged `enforce_warehouse` branch.
+    Since v0.9 this covers Type 2 as well as the FOB types: customer-supplied
+    fabric and trim now land in the company's own Fabrics / Trimmings
+    warehouse like everything else, instead of one undifferentiated static
+    warehouse. Valuation and batch stamping are untouched by this — they are
+    handled elsewhere in this same function's caller.
     """
     from frappe_wms2.wms.fob import assert_batchwise_valuation
     from frappe_wms2.wms.material_warehouse import get_warehouse_for_item
@@ -261,9 +266,9 @@ def _route_rows(rows, warehouse_field):
 
         ot = frappe.get_cached_doc("WMS Ownership Type", ot_name)
 
-        # FOB types (3/4): the warehouse is per CUSTOMER and per material,
-        # created on first use. Type 1/2 keep the static enforce_warehouse
-        # path below, untouched.
+        # Routed types (2/3/4): the warehouse follows the item's material
+        # category, from WMS Settings. The static enforce_warehouse branch
+        # below stays for any user-defined type that still uses it.
         if ot.get("route_to_customer_warehouse"):
             # Destination depends only on the item's material category now,
             # not on the customer.

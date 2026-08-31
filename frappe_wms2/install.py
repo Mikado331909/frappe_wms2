@@ -150,6 +150,10 @@ OWNERSHIP_TYPE_SEED = [
         "is_active": 1,
         "requires_customer": 1,
         "zero_valuation_receipt": 1,
+        # Since v0.9: routed to the company's own material warehouse like
+        # every other type, instead of one static warehouse for both
+        # materials. Valuation and stamping are unchanged.
+        "route_to_customer_warehouse": 1,
         "notes": "Type 2 (CMT): the customer sends material. Quantity is "
         "tracked (incl. per storage location) at ZERO value so it never "
         "inflates own stock value.",

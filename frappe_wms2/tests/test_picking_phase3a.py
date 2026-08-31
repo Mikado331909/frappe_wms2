@@ -134,11 +134,14 @@ class PickingFixtures(TestBase):
         return cls.track("Customer", name)
 
     @classmethod
-    def new_item_group(cls):
+    def new_item_group(cls, parent=None):
         name = f"WMS3A-{cls.run_token}-{token(4)}"
-        parent = frappe.db.get_value(
-            "Item Group", {"is_group": 1, "parent_item_group": ""}
-        ) or "All Item Groups"
+        # Under the configured material group: since v0.9 every
+        # customer-owned type is routed by material, so an item group outside
+        # the configured tree cannot receive that stock at all.
+        from frappe_wms2.tests.setup_records import material_group
+
+        parent = parent or material_group()
         frappe.get_doc(
             {
                 "doctype": "Item Group",
@@ -147,6 +150,7 @@ class PickingFixtures(TestBase):
                 "is_group": 0,
             }
         ).insert(ignore_permissions=True)
+        frappe.db.commit()
         return cls.track("Item Group", name)
 
     @classmethod
