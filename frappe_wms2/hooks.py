@@ -40,12 +40,15 @@ doc_events = {
     "Stock Entry": {
         "before_validate": [
             "frappe_wms2.wms.ownership.route_stock_entry",
-            "frappe_wms2.wms.production.name_finished_good_batch",
+            "frappe_wms2.wms.production.guard_work_order_batch_setting",
         ],
         "validate": "frappe_wms2.wms.ownership.validate_stock_entry",
         "on_submit": [
             "frappe_wms2.wms.ownership.stamp_batches_stock_entry",
             "frappe_wms2.wms.fob_direct.create_concept_invoices_stock_entry",
+            # Part A: each Manufacture booking keeps its own batch; this only
+            # makes sure that batch points back at its Work Order.
+            "frappe_wms2.wms.production.link_finished_good_batches_to_work_order",
         ],
     },
     # Phase FOB (Part 1): shipping the finished good invoices the customer's
@@ -69,7 +72,11 @@ doc_events = {
 
 # FOB: explicit "you are about to CONFIRM / CANCEL this sale" dialogs on
 # concept invoices, so the two opposite actions cannot be confused.
-doctype_js = {"Sales Invoice": "public/js/fob_sales_invoice.js"}
+doctype_js = {
+    "Sales Invoice": "public/js/fob_sales_invoice.js",
+    # Part C: batch traceability button on the Work Order form.
+    "Work Order": "public/js/work_order_traceability.js",
+}
 
 # Phase 3a: pick list print format is the default for the doctype.
 default_print_format_map = {"WMS Pick List": "WMS Pick List"}

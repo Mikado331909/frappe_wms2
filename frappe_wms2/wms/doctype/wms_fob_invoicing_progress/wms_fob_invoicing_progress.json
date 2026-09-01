@@ -23,12 +23,13 @@
   {
    "fieldname": "finished_good_batch",
    "fieldtype": "Link",
-   "label": "Finished Good Batch",
+   "label": "First Finished Good Batch",
    "options": "Batch",
    "read_only": 1,
-   "reqd": 1,
-   "in_list_view": 1,
-   "in_standard_filter": 1
+   "reqd": 0,
+   "in_list_view": 0,
+   "in_standard_filter": 1,
+   "description": "Informational: the first produced batch this row was created from. Not part of the key."
   },
   {
    "fieldname": "work_order",
@@ -36,7 +37,10 @@
    "label": "Work Order",
    "options": "Work Order",
    "read_only": 1,
-   "in_standard_filter": 1
+   "in_standard_filter": 1,
+   "reqd": 1,
+   "in_list_view": 1,
+   "description": "The unit invoicing is tracked against. One row per (Work Order, raw material batch) — NOT per finished-good batch, since a Work Order may be booked in several Manufacture bookings, each with its own batch."
   },
   {
    "fieldname": "raw_material_batch",

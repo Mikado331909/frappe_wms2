@@ -152,9 +152,21 @@ class FOBFixtures(PickingFixtures):
         return item
 
     def new_finished_item(self):
+        """Finished good with ERPNext's OWN batch creation.
+
+        Since Part A nothing overrides the batch name, so the item itself has
+        to be configured for batches — exactly as any other batch-tracked item
+        is.
+        """
         item = make_item(has_batch_no=True)
         frappe.db.set_value(
-            "Item", item, {"item_group": self.group_unrelated, "create_new_batch": 0}
+            "Item",
+            item,
+            {
+                "item_group": self.group_unrelated,
+                "create_new_batch": 1,
+                "batch_number_series": f"WMSFG-{self.run_token}-.####",
+            },
         )
         frappe.clear_document_cache("Item", item)
         self.track("Item", item)
@@ -205,92 +217,6 @@ class FOBFixtures(PickingFixtures):
         pr = make_purchase_receipt([row])
         return pr, batch
 
-
-class TestFOBType4(FOBFixtures):
-    # ------------------------------------------------------------------ T1
-    def test_t1_type4_intake_routes_to_material_warehouse(self):
-        raw = self.new_material_item(priced=7.5)
-        finished = self.new_finished_item()
-        self.make_bom(finished, [(raw, 2)])
-
-        loc = self.new_location()
-        pr, batch = self.fob_receipt(raw, 10, loc, self.customer_a, rate=3)
-
-        # The company's own trimmings warehouse — never a per-customer one.
-        expected_wh = get_material_warehouse(TRIMMINGS)
-        self.assertEqual(pr.items[0].warehouse, expected_wh)
-        self.assertEqual(expected_wh, self.wh_trimmings)
-        self.assertNotIn(self.customer_a, expected_wh)
-        # No warehouse was created as a side effect of this receipt.
-        self.assertFalse(
-            frappe.db.exists("Warehouse", {"warehouse_name": ("like", f"%{self.customer_a}%")})
-        )
-
-        # Real cost, not zero valuation.
-        sle = frappe.db.get_value(
-            "Stock Ledger Entry",
-            {"voucher_no": pr.name, "is_cancelled": 0},
-            ["actual_qty", "stock_value_difference", "warehouse"],
-            as_dict=True,
-        )
-        self.assertEqual(flt(sle.actual_qty), 10)
-        self.assertEqual(flt(sle.stock_value_difference), 30)
-        self.assertEqual(sle.warehouse, expected_wh)
-
-        # Batch stamped.
-        stamp = frappe.db.get_value(
-            "Batch", batch, ["wms_ownership_type", "wms_customer"], as_dict=True
-        )
-        self.assertEqual(stamp.wms_ownership_type, TYPE4)
-        self.assertEqual(stamp.wms_customer, self.customer_a)
-
-    # ------------------------------------------------------------------ T2
-    def test_t2_type4_intake_without_active_bom_is_refused(self):
-        raw = self.new_material_item(priced=5)  # in no BOM at all
-        loc = self.new_location()
-
-        before_wh = frappe.db.count("Warehouse")
-        with self.assertRaises(frappe.ValidationError) as ctx:
-            self.fob_receipt(raw, 5, loc, self.customer_a)
-        self.assertIn(raw, str(ctx.exception))
-        self.assertIn("BOM", str(ctx.exception))
-
-        # Nothing created.
-        self.assertFalse(
-            frappe.db.exists("Stock Ledger Entry", {"item_code": raw, "is_cancelled": 0})
-        )
-
-        # An item outside both configured material groups is refused too.
-        stray = self.new_material_item(group=self.group_unrelated, priced=5)
-        finished = self.new_finished_item()
-        self.make_bom(finished, [(stray, 1)])
-        with self.assertRaises(frappe.ValidationError) as ctx2:
-            self.fob_receipt(stray, 5, self.new_location(), self.customer_a)
-        self.assertIn(self.group_unrelated, str(ctx2.exception))
-        frappe.db.rollback()
-        self.assertGreaterEqual(frappe.db.count("Warehouse"), before_wh - 1)
-
-    # ------------------------------------------------------------------ T3
-    def test_t3_finished_good_batch_is_named_after_work_order(self):
-        raw = self.new_material_item(priced=6)
-        finished = self.new_finished_item()
-        self.make_bom(finished, [(raw, 2)])
-        loc = self.new_location()
-        _pr, batch = self.fob_receipt(raw, 20, loc, self.customer_a)
-        self.pick_to_wip(raw, 10)
-
-        wo, fg_batch, _fg_loc = self.run_production(finished, raw, batch, produce_qty=5)
-        self.assertEqual(fg_batch, wo)
-        self.assertEqual(frappe.db.get_value("Batch", fg_batch, "item"), finished)
-
-        from frappe_wms2.wms.production import (
-            get_work_order_consumption,
-            get_work_order_for_batch,
-        )
-
-        self.assertEqual(get_work_order_for_batch(fg_batch), wo)
-        consumption = get_work_order_consumption(wo)
-        self.assertEqual(flt(consumption.get((raw, batch))), 10)  # 2 per unit x 5
 
     def pick_to_wip(self, item, qty, customer=None, item_group=None):
         """Move raw material from the customer warehouse into the WIP pot via
@@ -379,8 +305,14 @@ class TestFOBType4(FOBFixtures):
         se.submit()
         self.track("Stock Entry", se.name)
 
-        fg_batch = next(r.batch_no for r in se.items if r.get("is_finished_item"))
-        return wo.name, fg_batch, fg_location
+        # The in-memory row is not refreshed by ERPNext's own batch creation,
+        # so read the batch from the ledger through the shared resolver.
+        from frappe_wms2.wms.ownership import _get_row_batches
+
+        fg_row = next(r for r in se.items if r.get("is_finished_item"))
+        batches = _get_row_batches(se, fg_row)
+        assert len(batches) == 1, batches
+        return wo.name, next(iter(batches)), fg_location
 
     def bom_qty(self, bom, item_code):
         rows = frappe.get_all(
@@ -435,6 +367,95 @@ class TestFOBType4(FOBFixtures):
             filters={"wms_fob_source_name": delivery_note},
             fields=["name", "docstatus", "update_stock"],
         )
+
+
+class TestFOBType4(FOBFixtures):
+    # ------------------------------------------------------------------ T1
+    def test_t1_type4_intake_routes_to_material_warehouse(self):
+        raw = self.new_material_item(priced=7.5)
+        finished = self.new_finished_item()
+        self.make_bom(finished, [(raw, 2)])
+
+        loc = self.new_location()
+        pr, batch = self.fob_receipt(raw, 10, loc, self.customer_a, rate=3)
+
+        # The company's own trimmings warehouse — never a per-customer one.
+        expected_wh = get_material_warehouse(TRIMMINGS)
+        self.assertEqual(pr.items[0].warehouse, expected_wh)
+        self.assertEqual(expected_wh, self.wh_trimmings)
+        self.assertNotIn(self.customer_a, expected_wh)
+        # No warehouse was created as a side effect of this receipt.
+        self.assertFalse(
+            frappe.db.exists("Warehouse", {"warehouse_name": ("like", f"%{self.customer_a}%")})
+        )
+
+        # Real cost, not zero valuation.
+        sle = frappe.db.get_value(
+            "Stock Ledger Entry",
+            {"voucher_no": pr.name, "is_cancelled": 0},
+            ["actual_qty", "stock_value_difference", "warehouse"],
+            as_dict=True,
+        )
+        self.assertEqual(flt(sle.actual_qty), 10)
+        self.assertEqual(flt(sle.stock_value_difference), 30)
+        self.assertEqual(sle.warehouse, expected_wh)
+
+        # Batch stamped.
+        stamp = frappe.db.get_value(
+            "Batch", batch, ["wms_ownership_type", "wms_customer"], as_dict=True
+        )
+        self.assertEqual(stamp.wms_ownership_type, TYPE4)
+        self.assertEqual(stamp.wms_customer, self.customer_a)
+
+    # ------------------------------------------------------------------ T2
+    def test_t2_type4_intake_without_active_bom_is_refused(self):
+        raw = self.new_material_item(priced=5)  # in no BOM at all
+        loc = self.new_location()
+
+        before_wh = frappe.db.count("Warehouse")
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self.fob_receipt(raw, 5, loc, self.customer_a)
+        self.assertIn(raw, str(ctx.exception))
+        self.assertIn("BOM", str(ctx.exception))
+
+        # Nothing created.
+        self.assertFalse(
+            frappe.db.exists("Stock Ledger Entry", {"item_code": raw, "is_cancelled": 0})
+        )
+
+        # An item outside both configured material groups is refused too.
+        stray = self.new_material_item(group=self.group_unrelated, priced=5)
+        finished = self.new_finished_item()
+        self.make_bom(finished, [(stray, 1)])
+        with self.assertRaises(frappe.ValidationError) as ctx2:
+            self.fob_receipt(stray, 5, self.new_location(), self.customer_a)
+        self.assertIn(self.group_unrelated, str(ctx2.exception))
+        frappe.db.rollback()
+        self.assertGreaterEqual(frappe.db.count("Warehouse"), before_wh - 1)
+
+    # ------------------------------------------------------------------ T3
+    def test_t3_finished_good_batch_resolves_back_to_its_work_order(self):
+        raw = self.new_material_item(priced=6)
+        finished = self.new_finished_item()
+        self.make_bom(finished, [(raw, 2)])
+        loc = self.new_location()
+        _pr, batch = self.fob_receipt(raw, 20, loc, self.customer_a)
+        self.pick_to_wip(raw, 10)
+
+        wo, fg_batch, _fg_loc = self.run_production(finished, raw, batch, produce_qty=5)
+        # Part A: the batch is the ITEM's own, no longer named after the Work
+        # Order — but it still resolves back to it.
+        self.assertNotEqual(fg_batch, wo)
+        self.assertEqual(frappe.db.get_value("Batch", fg_batch, "item"), finished)
+
+        from frappe_wms2.wms.production import (
+            get_work_order_consumption,
+            get_work_order_for_batch,
+        )
+
+        self.assertEqual(get_work_order_for_batch(fg_batch), wo)
+        consumption = get_work_order_consumption(wo)
+        self.assertEqual(flt(consumption.get((raw, batch))), 10)  # 2 per unit x 5
 
     def setup_shipped_production(self, produce=5, receive=20, per_unit=2,
                                  rate=7.5, extra_own_use=False,

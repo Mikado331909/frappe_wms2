@@ -34,15 +34,22 @@ CONSUMPTION_PURPOSES = ("Manufacture", "Material Consumption for Manufacture")
 # ------------------------------------------------ 0.5 finished-good batches
 
 
-def name_finished_good_batch(doc, method=None):
-    """Name a Work Order's produced batch after the Work Order itself.
+def guard_work_order_batch_setting(doc, method=None):
+    """Refuse a Manufacture booking that ERPNext itself cannot complete.
 
-    Runs before validation of a Manufacture Stock Entry: for each finished
-    item row of a batch-tracked item with no batch chosen yet, the batch is
-    the Work Order's name. `Batch.autoname()` uses a supplied `batch_id`
-    verbatim (v16.26.2), so no naming-series change is needed.
+    Found empirically on 16.26.2: with Manufacturing Settings ->
+    "Make Serial No / Batch from Work Order" ON, a Manufacture entry whose
+    finished-good row has no batch makes ERPNext build its own Serial and
+    Batch Bundle WITHOUT a company, and the insert dies on a mandatory-field
+    error deep inside `create_serial_and_batch_bundle`. That is an ERPNext
+    limitation, not something this app can fix — but the raw error is
+    unreadable, so it is caught here and explained.
     """
     if doc.purpose != "Manufacture" or not doc.get("work_order"):
+        return
+    if not frappe.db.get_single_value(
+        "Manufacturing Settings", "make_serial_no_batch_from_work_order"
+    ):
         return
 
     for row in doc.get("items") or []:
@@ -53,52 +60,102 @@ def name_finished_good_batch(doc, method=None):
         if row.get("batch_no") or row.get("serial_and_batch_bundle"):
             continue
 
-        row.batch_no = ensure_work_order_batch(doc.work_order, row.item_code)
-        row.use_serial_batch_fields = 1
+        frappe.throw(
+            _(
+                "Manufacturing Settings has <b>Make Serial No / Batch from Work "
+                "Order</b> switched on. On this ERPNext version that path fails "
+                "with a mandatory-company error when the finished-good row has "
+                "no batch of its own.<br><br>Either switch that setting off (so "
+                "each Manufacture booking creates its own batch from the item's "
+                "series, which is what the traceability setup expects), or pick "
+                "the Work Order's batch on row {0} by hand."
+            ).format(row.idx),
+            title=_("Incompatible Manufacturing Setting"),
+        )
 
 
-def ensure_work_order_batch(work_order, item_code):
-    """The Batch named after the Work Order, created once."""
-    if frappe.db.exists("Batch", work_order):
-        existing_item = frappe.db.get_value("Batch", work_order, "item")
-        if existing_item != item_code:
-            frappe.throw(
-                _(
-                    "Batch {0} already exists for item {1}, so it cannot also "
-                    "identify the output of Work Order {0} ({2})."
-                ).format(
-                    frappe.bold(work_order), frappe.bold(existing_item),
-                    frappe.bold(item_code),
-                )
+def link_finished_good_batches_to_work_order(doc, method=None):
+    """Point every batch a Manufacture booking produced at its Work Order.
+
+    Part A: the batch is NO LONGER named after the Work Order. Each booking
+    gets its own batch from ERPNext's own resolution (the item's naming series
+    / auto-create settings), so two bookings on two days are two distinct
+    batches — that is the traceability the owner asked for.
+
+    What still has to hold is the LINK back to the Work Order, because the
+    whole invoicing chain resolves consumption through it. Verified empirically
+    on 16.26.2 (see the report): with Manufacturing Settings ->
+    "Make Serial No / Batch from Work Order" ON, ERPNext pre-creates batches
+    already referencing the Work Order; with it OFF (the default) a batch
+    created during submit references the STOCK ENTRY instead. So the link
+    cannot be assumed — this hook sets it where it is missing.
+
+    Runs on submit, when the batches actually exist: the in-memory row is not
+    refreshed by ERPNext's own batch creation, so batches are resolved from
+    the ledger through the shared `_get_row_batches` helper.
+    """
+    if doc.purpose != "Manufacture" or not doc.get("work_order"):
+        return
+
+    from frappe_wms2.wms.ownership import _get_row_batches
+
+    for row in doc.get("items") or []:
+        if not row.get("is_finished_item") or row.get("s_warehouse"):
+            continue
+
+        for batch_no in _get_row_batches(doc, row):
+            reference = frappe.db.get_value(
+                "Batch", batch_no, ["reference_doctype", "reference_name"],
+                as_dict=True,
             )
-        return work_order
+            if (
+                reference
+                and reference.reference_doctype == "Work Order"
+                and reference.reference_name == doc.work_order
+            ):
+                continue  # ERPNext already linked it; leave it alone
 
-    batch = frappe.get_doc(
-        {
-            "doctype": "Batch",
-            "batch_id": work_order,
-            "item": item_code,
-            "reference_doctype": "Work Order",
-            "reference_name": work_order,
-        }
+            frappe.db.set_value(
+                "Batch",
+                batch_no,
+                {
+                    "reference_doctype": "Work Order",
+                    "reference_name": doc.work_order,
+                },
+                update_modified=False,
+            )
+            frappe.clear_document_cache("Batch", batch_no)
+
+
+def get_work_order_batches(work_order):
+    """Every finished-good batch a Work Order produced — the reverse of
+    `get_work_order_for_batch`. One entry per Manufacture booking."""
+    return frappe.get_all(
+        "Batch",
+        filters={"reference_doctype": "Work Order", "reference_name": work_order},
+        pluck="name",
     )
-    batch.insert(ignore_permissions=True)
-    return batch.name
 
 
 def get_work_order_for_batch(batch_no):
-    """The Work Order behind a finished-good batch (0.5: identity, not a link
-    table). Falls back to the Batch's reference fields for batches created
-    some other way."""
+    """The Work Order behind a finished-good batch.
+
+    Since Part A the reference fields are the NORMAL path, not a fallback:
+    batch names no longer coincide with Work Order names. The name check is
+    kept only for batches created before that change.
+    """
     if not batch_no:
         return None
-    if frappe.db.exists("Work Order", batch_no):
-        return batch_no
+
     ref_doctype, ref_name = frappe.db.get_value(
         "Batch", batch_no, ["reference_doctype", "reference_name"]
     ) or (None, None)
     if ref_doctype == "Work Order" and ref_name:
         return ref_name
+
+    # Legacy: batches named after their Work Order (pre-Part-A).
+    if frappe.db.exists("Work Order", batch_no):
+        return batch_no
     return None
 
 
@@ -225,7 +282,7 @@ def invoice_fob_material_on_delivery(doc, method=None):
 
                 share = flt(per_unit) * flt(shipped_qty)
                 progress = _get_progress(
-                    fg_batch, rm_batch, work_order, item_code, consumed, doc, stamp
+                    work_order, rm_batch, fg_batch, item_code, consumed, doc, stamp
                 )
                 remaining = flt(progress.consumed_qty) - flt(progress.invoiced_qty)
                 qty = min(share, remaining)
@@ -328,16 +385,29 @@ def _shipped_batches(dn_row):
     return {}
 
 
-def _get_progress(fg_batch, rm_batch, work_order, item_code, consumed, doc, stamp):
-    """The (finished-good batch, raw-material batch) ledger row — created once,
-    with the total consumption fixed at creation."""
+def _get_progress(work_order, rm_batch, fg_batch, item_code, consumed, doc, stamp):
+    """The (WORK ORDER, raw-material batch) ledger row.
+
+    Part B: keyed on the Work Order, not on a finished-good batch. Since each
+    Manufacture booking now produces its own batch, two batches of one Work
+    Order shipped on two Delivery Notes must draw down ONE shared allowance —
+    the Work Order's actual total consumption — or the same material would be
+    invoiced once per batch.
+
+    The consumed quantity is refreshed on every visit rather than frozen at
+    creation: a later booking of the same Work Order consumes more raw
+    material, and the allowance has to grow with it.
+    """
     name = frappe.db.get_value(
         "WMS FOB Invoicing Progress",
-        {"finished_good_batch": fg_batch, "raw_material_batch": rm_batch},
+        {"work_order": work_order, "raw_material_batch": rm_batch},
         "name",
     )
     if name:
-        return frappe.get_doc("WMS FOB Invoicing Progress", name)
+        progress = frappe.get_doc("WMS FOB Invoicing Progress", name)
+        if flt(progress.consumed_qty) != flt(consumed):
+            progress.db_set("consumed_qty", flt(consumed))
+        return progress
 
     return frappe.get_doc(
         {
@@ -401,3 +471,99 @@ def _make_draft_invoice(doc, lines):
     invoice.flags.ignore_permissions = True
     invoice.insert(ignore_permissions=True)  # DRAFT — never auto-submitted
     return invoice
+
+
+# ------------------------------------------------- Part C: traceability
+
+
+@frappe.whitelist()
+def get_work_order_traceability(work_order):
+    """What went into a Work Order, and what came out of it.
+
+    Raw material batches are read from the Work Order's own consumption (the
+    same function invoicing uses, so the two can never disagree), with each
+    batch's ownership stamp resolved from the Batch itself. Finished-good
+    batches are the reverse lookup of `get_work_order_for_batch`: one entry per
+    Manufacture booking since Part A.
+
+    A Work Order with nothing booked yet returns empty lists, not an error —
+    that is a normal mid-production state.
+    """
+    if not frappe.db.exists("Work Order", work_order):
+        frappe.throw(_("Work Order {0} does not exist.").format(work_order))
+    frappe.has_permission("Work Order", doc=work_order, throw=True)
+
+    raw_materials = []
+    for (item_code, batch_no), qty in sorted(
+        get_work_order_consumption(work_order).items()
+    ):
+        stamp = (
+            frappe.db.get_value(
+                "Batch", batch_no, [OWNERSHIP_FIELD, CUSTOMER_FIELD], as_dict=True
+            )
+            or {}
+        )
+        raw_materials.append(
+            {
+                "batch_no": batch_no,
+                "item_code": item_code,
+                "item_name": frappe.get_cached_value("Item", item_code, "item_name"),
+                "qty": flt(qty),
+                "ownership_type": stamp.get(OWNERSHIP_FIELD),
+                "customer": stamp.get(CUSTOMER_FIELD),
+            }
+        )
+
+    finished_goods = []
+    for batch_no in get_work_order_batches(work_order):
+        finished_goods.append(
+            dict(_finished_batch_figures(batch_no), batch_no=batch_no)
+        )
+    finished_goods.sort(key=lambda r: (r.get("booking_date") or "", r["batch_no"]))
+
+    return {
+        "work_order": work_order,
+        "production_item": frappe.db.get_value(
+            "Work Order", work_order, "production_item"
+        ),
+        "raw_materials": raw_materials,
+        "finished_goods": finished_goods,
+    }
+
+
+def _finished_batch_figures(batch_no):
+    """Produced qty and booking date of one finished-good batch, from the
+    Manufacture entry that created it."""
+    rows = frappe.db.sql(
+        """
+        select sle.posting_date, sle.voucher_no, sum(sbe.qty) as qty
+        from `tabSerial and Batch Entry` sbe
+        inner join `tabSerial and Batch Bundle` sbb on sbb.name = sbe.parent
+        inner join `tabStock Ledger Entry` sle
+            on sle.serial_and_batch_bundle = sbb.name and sle.is_cancelled = 0
+        where sbe.batch_no = %s and sbb.docstatus = 1 and sle.actual_qty > 0
+        group by sle.posting_date, sle.voucher_no
+        order by sle.posting_date asc
+        """,
+        batch_no,
+        as_dict=True,
+    )
+    if not rows:
+        legacy = frappe.db.sql(
+            """select posting_date, voucher_no, sum(actual_qty) as qty
+               from `tabStock Ledger Entry`
+               where batch_no = %s and is_cancelled = 0 and actual_qty > 0
+               group by posting_date, voucher_no""",
+            batch_no,
+            as_dict=True,
+        )
+        rows = legacy
+
+    qty = sum(flt(r.qty) for r in rows)
+    first = rows[0] if rows else None
+    return {
+        "qty": qty,
+        "booking_date": first.posting_date if first else None,
+        "stock_entry": first.voucher_no if first else None,
+        "item_code": frappe.db.get_value("Batch", batch_no, "item"),
+    }
