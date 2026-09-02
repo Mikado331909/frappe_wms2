@@ -8,6 +8,7 @@
  "field_order": [
   "material_request",
   "sales_order",
+  "work_order",
   "item_code",
   "item_name",
   "item_group",
@@ -43,6 +44,14 @@
    "label": "Sales Order",
    "options": "Sales Order",
    "read_only": 1
+  },
+  {
+   "fieldname": "work_order",
+   "fieldtype": "Link",
+   "label": "Work Order",
+   "options": "Work Order",
+   "read_only": 1,
+   "description": "Set when this line's demand came from a Material Request for a Work Order. Lines are grouped by it on submit: Stock Entry carries the Work Order at document level, so one entry is created per Work Order."
   },
   {
    "fieldname": "item_code",

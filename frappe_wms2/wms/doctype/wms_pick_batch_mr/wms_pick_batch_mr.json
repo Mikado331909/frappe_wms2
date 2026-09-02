@@ -7,7 +7,8 @@
  "field_order": [
   "material_request",
   "sales_order",
-  "customer"
+  "customer",
+  "work_order"
  ],
  "fields": [
   {
@@ -33,6 +34,15 @@
    "label": "Customer",
    "options": "Customer",
    "read_only": 1
+  },
+  {
+   "fieldname": "work_order",
+   "fieldtype": "Link",
+   "label": "Work Order",
+   "options": "Work Order",
+   "read_only": 1,
+   "in_list_view": 1,
+   "description": "Work Order this Material Request was raised for, if any."
   }
  ],
  "istable": 1,

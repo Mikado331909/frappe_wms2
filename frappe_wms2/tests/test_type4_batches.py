@@ -277,3 +277,80 @@ class TestType4Batches(FOBFixtures):
         self.assertEqual(overview["finished_goods"], [])
         self.assertEqual(overview["raw_materials"], [])
         self.assertEqual(get_work_order_batches(ctx.wo), [])
+
+    def location_of(self, item_code, batch_no):
+        """Where the remaining stock of this batch actually sits."""
+        from frappe_wms2.wms.picking import get_stock_by_batch_location
+
+        for row in get_stock_by_batch_location([item_code],
+                                               warehouse=self.wh_trimmings):
+            if row.batch_no == batch_no and flt(row.qty) > 0:
+                return row.storage_location
+        raise AssertionError(f"no stock left of {batch_no}")
+
+    # ------------------------------------------------------------------ P0
+    def test_p0_only_the_manufacture_leg_counts_as_consumption(self):
+        """Consumption is counted at exactly one stage.
+
+        Guards the Part 0 finding against regression, and pins the agreed
+        contents of CONSUMPTION_PURPOSES: neither the transfer INTO
+        Work-In-Progress nor a pick's own bulk -> WIP movement may be counted,
+        or every unit would be billed twice.
+        """
+        from frappe_wms2.wms.production import CONSUMPTION_PURPOSES
+
+        self.assertEqual(CONSUMPTION_PURPOSES, ("Manufacture",))
+
+        ctx = self.setup_work_order(per_unit=2, order_qty=6, rate=5)
+        hand_counted = ctx.per_unit * 6  # 12
+
+        # The pick that put this material into WIP carries the Work Order for
+        # attribution — it must not add to consumption.
+        picks = frappe.get_all(
+            "Stock Entry",
+            filters={"purpose": "Material Transfer", "docstatus": 1},
+            fields=["name", "work_order"],
+        )
+        self.assertTrue(picks, "the fixture should have picked material to WIP")
+
+        self.assertEqual(get_work_order_consumption(ctx.wo), {})
+
+        # Only after the Manufacture booking, and then exactly once.
+        self.book_manufacture(ctx, 6)
+        consumption = get_work_order_consumption(ctx.wo)
+        self.assertEqual(flt(consumption.get((ctx.raw, ctx.batch))), hand_counted)
+
+        # An explicit "Material Transfer for Manufacture" of the same units
+        # into WIP still does not inflate it.
+        se = frappe.get_doc(
+            {
+                "doctype": "Stock Entry",
+                "stock_entry_type": "Material Transfer for Manufacture",
+                "purpose": "Material Transfer for Manufacture",
+                "company": COMPANY,
+                "work_order": ctx.wo,
+                "bom_no": ctx.bom,
+                "fg_completed_qty": 0,
+                "posting_date": nowdate(),
+                "items": [
+                    {
+                        "item_code": ctx.raw, "qty": 4,
+                        "uom": "Nos", "stock_uom": "Nos", "conversion_factor": 1,
+                        "s_warehouse": self.wh_trimmings,
+                        "storage_location": self.location_of(ctx.raw, ctx.batch),
+                        "t_warehouse": self.wip_warehouse,
+                        "to_storage_location": self.wip_location,
+                        "use_serial_batch_fields": 1, "batch_no": ctx.batch,
+                    }
+                ],
+            }
+        )
+        se.insert(ignore_permissions=True)
+        se.submit()
+        self.track("Stock Entry", se.name)
+
+        self.assertEqual(
+            flt(get_work_order_consumption(ctx.wo).get((ctx.raw, ctx.batch))),
+            hand_counted,
+            "a transfer into WIP must never be counted as consumption",
+        )

@@ -19,16 +19,31 @@ from frappe_wms2.wms.fob import resolve_selling_rate
 OWNERSHIP_FIELD = "wms_ownership_type"
 CUSTOMER_FIELD = "wms_customer"
 
-# Purposes whose Stock Entries genuinely CONSUME raw material for a Work
-# Order — i.e. the material is embodied in the finished good.
+# The ONE purpose whose Stock Entries genuinely consume raw material for a
+# Work Order — the point where the material is embodied in the finished good.
+# Every unit is counted here exactly once.
 #
-# "Material Transfer for Manufacture" is deliberately NOT in this list. It is
-# the same physical material at an earlier stage: it leaves the source
-# warehouse for Work-In-Progress, and later leaves Work-In-Progress via
-# "Manufacture". Counting both negative legs counted every unit twice.
-# Verified empirically on 16.26.2 with a hand-counted Work Order: 20 units
-# used, both legs summed to 40, the Manufacture leg alone to 20.
-CONSUMPTION_PURPOSES = ("Manufacture", "Material Consumption for Manufacture")
+# Two purposes are deliberately absent:
+#
+# "Material Transfer for Manufacture" — the same physical material at an
+# earlier stage: it leaves the source warehouse for Work-In-Progress and later
+# leaves Work-In-Progress via "Manufacture". Counting both negative legs
+# counted every unit twice. Verified empirically on 16.26.2 with a
+# hand-counted Work Order: 20 units used, both legs summed to 40, the
+# Manufacture leg alone to 20.
+#
+# "Material Consumption for Manufacture" — belongs to Job Card / operations
+# based manufacturing, which is not in use here. The real handoff between
+# departments (cutting -> sewing) is physical and produces no stock document
+# at all; if it is ever booked, it will be a plain "Material Transfer", which
+# is not a consumption purpose either way. Left out rather than kept
+# speculatively: if Job Cards are ever introduced, this purpose gets added
+# back deliberately and re-tested then.
+#
+# The WMS pick list's own bulk -> WIP movement is a plain "Material Transfer"
+# and carries `work_order` for attribution only — never counted here (see the
+# Work Order picking report).
+CONSUMPTION_PURPOSES = ("Manufacture",)
 
 
 # ------------------------------------------------ 0.5 finished-good batches

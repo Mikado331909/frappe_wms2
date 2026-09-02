@@ -283,10 +283,16 @@ class WMSPickList(Document):
     def post_stock(self):
         wip_warehouse, wip_location = get_wip_target(self.company)
 
-        transfer = self.make_transfer_to_wip(wip_warehouse, wip_location)
+        transfers = self.make_transfer_to_wip(wip_warehouse, wip_location)
         correction = self.make_empty_corrections()
 
-        self.db_set("stock_entry", transfer.name if transfer else None)
+        # `stock_entry` keeps pointing at the first entry (unchanged for every
+        # pick list that touches no Work Order — those still produce exactly
+        # one); `stock_entries` lists them all.
+        self.db_set("stock_entry", transfers[0].name if transfers else None)
+        self.db_set(
+            "stock_entries", ", ".join(t.name for t in transfers) if transfers else None
+        )
         self.db_set(
             "correction_stock_entry", correction.name if correction else None
         )
@@ -312,31 +318,60 @@ class WMSPickList(Document):
         )
 
     def make_transfer_to_wip(self, wip_warehouse, wip_location):
+        """One Material Transfer per Work Order (plus one for lines without).
+
+        The picker still works from a single consolidated list — several Work
+        Orders of one customer on one trip through the warehouse. The split
+        happens only in the bookkeeping, because `work_order` sits on the
+        Stock Entry HEADER: one entry can carry one Work Order, and
+        `get_work_order_consumption()` finds a Work Order's material by
+        exactly that field.
+
+        A pick list with no Work Order anywhere produces a single entry with
+        no `work_order` — byte-for-byte what it did before this change.
+        """
         rows = [r for r in self.items if flt(r.picked_qty) > 0]
         if not rows:
-            return None
+            return []
 
-        se = self._new_stock_entry("Material Transfer")
+        groups = {}
         for row in rows:
-            se.append(
-                "items",
-                {
-                    "item_code": row.item_code,
-                    "qty": flt(row.picked_qty),
-                    "uom": row.stock_uom,
-                    "stock_uom": row.stock_uom,
-                    "conversion_factor": 1,
-                    "s_warehouse": row.warehouse,
-                    "storage_location": row.storage_location,
-                    "t_warehouse": wip_warehouse,
-                    "to_storage_location": wip_location,
-                    "use_serial_batch_fields": 1,
-                    "batch_no": row.batch_no,
-                },
-            )
-        se.insert(ignore_permissions=True)
-        se.submit()
-        return se
+            groups.setdefault(row.get("work_order") or None, []).append(row)
+
+        # Deterministic order: the no-Work-Order group first, then by name.
+        ordered = sorted(groups, key=lambda w: (w is not None, w or ""))
+
+        entries = []
+        for work_order in ordered:
+            se = self._new_stock_entry("Material Transfer")
+            if work_order:
+                se.work_order = work_order
+                se.remarks = _(
+                    "Pick list {0} — customer {1} — Work Order {2}"
+                ).format(self.name, self.customer, work_order)
+
+            for row in groups[work_order]:
+                se.append(
+                    "items",
+                    {
+                        "item_code": row.item_code,
+                        "qty": flt(row.picked_qty),
+                        "uom": row.stock_uom,
+                        "stock_uom": row.stock_uom,
+                        "conversion_factor": 1,
+                        "s_warehouse": row.warehouse,
+                        "storage_location": row.storage_location,
+                        "t_warehouse": wip_warehouse,
+                        "to_storage_location": wip_location,
+                        "use_serial_batch_fields": 1,
+                        "batch_no": row.batch_no,
+                    },
+                )
+            se.insert(ignore_permissions=True)
+            se.submit()
+            entries.append(se)
+
+        return entries
 
     def make_empty_corrections(self):
         rows = [
@@ -440,7 +475,9 @@ def get_wip_provenance(pick_list):
                 "from_storage_location": row.storage_location,
                 "batch_ownership_type": batch.get("wms_ownership_type"),
                 "batch_customer": batch.get("wms_customer"),
+                "work_order": row.get("work_order"),
                 "stock_entry": doc.stock_entry,
+                "stock_entries": doc.get("stock_entries"),
             }
         )
     return out

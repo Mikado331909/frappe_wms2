@@ -39,9 +39,12 @@ class WMSPickBatch(Document):
 
         seen = {}
         for row in self.material_requests:
-            sales_order, customer = get_mr_order_customer(row.material_request)
+            sales_order, customer, work_order = get_mr_order_customer(
+                row.material_request
+            )
             row.sales_order = sales_order
             row.customer = customer
+            row.work_order = work_order
             seen.setdefault(customer, []).append(row.material_request)
 
         if len(seen) > 1:
@@ -171,11 +174,17 @@ class WMSPickBatch(Document):
 
 
 def get_mr_order_customer(material_request):
-    """Customer of an MR = customer of the Sales Order behind it."""
+    """(sales_order, customer, work_order) behind a Material Request.
+
+    The customer still comes from the Sales Order on the MR's own rows. The
+    Work Order comes from the MR **header**: verified against v16.26.2, that
+    is where ERPNext keeps the field — `Material Request Item` has no
+    `work_order` column at all (see the report).
+    """
     mr = frappe.db.get_value(
         "Material Request",
         material_request,
-        ["name", "docstatus", "material_request_type"],
+        ["name", "docstatus", "material_request_type", "work_order"],
         as_dict=True,
     )
     if not mr:
@@ -196,6 +205,16 @@ def get_mr_order_customer(material_request):
     ]
     sales_orders = list(dict.fromkeys(sales_orders))
     if not sales_orders:
+        if mr.work_order:
+            frappe.throw(
+                _(
+                    "Material Request {0} is for Work Order {1}, but no Sales "
+                    "Order is linked to its lines, so the customer cannot be "
+                    "determined. A pick is always for one customer — link the "
+                    "Sales Order behind that Work Order before picking for it."
+                ).format(material_request, frappe.bold(mr.work_order)),
+                title=_("No customer for this Work Order"),
+            )
         frappe.throw(
             _(
                 "Material Request {0} is not linked to a Sales Order, so no "
@@ -221,7 +240,7 @@ def get_mr_order_customer(material_request):
         frappe.throw(
             _("Sales Order {0} has no customer.").format(sales_orders[0])
         )
-    return sales_orders[0], customer
+    return sales_orders[0], customer, mr.work_order
 
 
 def get_bundle_demand(mr_rows):
@@ -283,6 +302,7 @@ def get_open_demand_per_order(bundle):
     listed = get_listed_qty(bundle.name, per_order=True)
     names = [r.material_request for r in bundle.material_requests]
     so_map = {r.material_request: r.sales_order for r in bundle.material_requests}
+    wo_map = {r.material_request: r.work_order for r in bundle.material_requests}
 
     rows = []
     for item in frappe.get_all(
@@ -307,6 +327,7 @@ def get_open_demand_per_order(bundle):
             {
                 "material_request": item.parent,
                 "sales_order": so_map.get(item.parent),
+                "work_order": wo_map.get(item.parent),
                 "item_code": item.item_code,
                 "item_name": item.item_name,
                 "item_group": item.item_group
@@ -328,3 +349,68 @@ def get_item_groups(pick_batch):
         groups.setdefault(row.item_group, {"item_group": row.item_group, "qty_open": 0})
         groups[row.item_group]["qty_open"] += flt(row.qty_open)
     return sorted(groups.values(), key=lambda g: g["item_group"] or "")
+
+
+@frappe.whitelist()
+def make_material_request_for_work_order(work_order, qty_multiplier=1):
+    """Raise a Material Request for a Work Order's raw material.
+
+    This exists because ERPNext v16.26.2 has no Work Order -> Material Request
+    path of its own (verified: the native direction is Material Request ->
+    Work Order, and `Material Request Item` has no `work_order` field at all).
+    The MR header field `work_order` DOES exist but nothing in ERPNext ever
+    fills it, so without this the picking chain has nothing to read.
+
+    What it sets, and why:
+      * `work_order` on the header — what the pick list groups its Stock
+        Entries by, and what `get_work_order_consumption()` looks for.
+      * `sales_order` on every row — how the customer is derived, exactly as
+        for an ordinary customer-shipment request. A Work Order with no Sales
+        Order behind it is refused rather than guessed at.
+    """
+    wo = frappe.get_doc("Work Order", work_order)
+    wo.check_permission("read")
+
+    if not wo.sales_order:
+        frappe.throw(
+            _(
+                "Work Order {0} has no Sales Order, so its customer cannot be "
+                "determined and its material cannot be picked. Link the Sales "
+                "Order first — a pick is always for exactly one customer."
+            ).format(frappe.bold(work_order)),
+            title=_("No customer for this Work Order"),
+        )
+
+    rows = []
+    for item in wo.required_items:
+        qty = flt(item.required_qty) * flt(qty_multiplier or 1)
+        if qty <= 0:
+            continue
+        rows.append(
+            {
+                "item_code": item.item_code,
+                "qty": qty,
+                "warehouse": item.source_warehouse or wo.source_warehouse,
+                "schedule_date": wo.planned_start_date or frappe.utils.nowdate(),
+                "sales_order": wo.sales_order,
+            }
+        )
+
+    if not rows:
+        frappe.throw(
+            _("Work Order {0} has no raw material to request.").format(work_order)
+        )
+
+    mr = frappe.get_doc(
+        {
+            "doctype": "Material Request",
+            "material_request_type": "Material Transfer",
+            "company": wo.company,
+            "transaction_date": frappe.utils.nowdate(),
+            "schedule_date": wo.planned_start_date or frappe.utils.nowdate(),
+            "work_order": work_order,
+            "items": rows,
+        }
+    )
+    mr.insert(ignore_permissions=True)
+    return mr

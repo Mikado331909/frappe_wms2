@@ -320,6 +320,8 @@ def allocate_fifo(demand_rows, customer):
                 {
                     "material_request": demand.get("material_request"),
                     "sales_order": demand.get("sales_order"),
+                    # Carried so the submit can group the Stock Entries by it.
+                    "work_order": demand.get("work_order"),
                     "item_code": row.item_code,
                     "item_name": demand.get("item_name"),
                     "item_group": demand.get("item_group"),

@@ -32,7 +32,8 @@
   "cancel_reason",
   "cancel_comment",
   "column_break_reversal",
-  "total_returned"
+  "total_returned",
+  "stock_entries"
  ],
  "fields": [
   {
@@ -211,6 +212,13 @@
    "label": "Total returned",
    "read_only": 1,
    "no_copy": 1
+  },
+  {
+   "fieldname": "stock_entries",
+   "fieldtype": "Small Text",
+   "label": "Pick Stock Entries",
+   "read_only": 1,
+   "description": "All Material Transfers created on submit — one per Work Order (plus one for lines without a Work Order). 'Pick Stock Entry' above is the first of them."
   }
  ],
  "index_web_pages_for_search": 1,
