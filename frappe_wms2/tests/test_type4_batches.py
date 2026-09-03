@@ -20,9 +20,9 @@ TYPE2 = "Supplied by customer"
 TYPE4 = "Purchased for customer"
 
 
-class TestType4Batches(FOBFixtures):
-    """Part A/B/C: one batch per Manufacture booking, invoicing capped per
-    Work Order, and the traceability overview."""
+class Type4Fixtures(FOBFixtures):
+    """Work Order / Manufacture-booking helpers, shared with the reservation
+    and currency tests."""
 
     # --------------------------------------------------------- helpers
 
@@ -136,6 +136,11 @@ class TestType4Batches(FOBFixtures):
         self.track("Sales Invoice", invoice.name)
         return invoice
 
+
+class TestType4Batches(Type4Fixtures):
+    """Part A/B/C: one batch per Manufacture booking, invoicing capped per
+    Work Order, and the traceability overview."""
+
     # ------------------------------------------------------------------ A1
     def test_a1_each_booking_gets_its_own_batch_not_named_after_the_wo(self):
         ctx = self.setup_work_order(per_unit=2, order_qty=10)
@@ -189,11 +194,13 @@ class TestType4Batches(FOBFixtures):
         progress = frappe.get_all(
             "WMS FOB Invoicing Progress",
             filters={"work_order": ctx.wo, "raw_material_batch": ctx.batch},
-            fields=["consumed_qty", "invoiced_qty"],
+            fields=["consumed_qty", "reserved_qty", "invoiced_qty"],
         )
         self.assertEqual(len(progress), 1)
         self.assertEqual(flt(progress[0].consumed_qty), consumed_total)
-        self.assertEqual(flt(progress[0].invoiced_qty), consumed_total)
+        # Drafts: reserved (so neither shipment can claim it twice), not billed.
+        self.assertEqual(flt(progress[0].reserved_qty), consumed_total)
+        self.assertEqual(flt(progress[0].invoiced_qty), 0)
 
     # ------------------------------------------------------------------ B2
     def test_b2_single_booking_invoices_the_same_as_before(self):
@@ -212,10 +219,11 @@ class TestType4Batches(FOBFixtures):
         progress = frappe.get_all(
             "WMS FOB Invoicing Progress",
             filters={"work_order": ctx.wo},
-            fields=["consumed_qty", "invoiced_qty"],
+            fields=["consumed_qty", "reserved_qty", "invoiced_qty"],
         )
         self.assertEqual(len(progress), 1)
-        self.assertEqual(flt(progress[0].invoiced_qty), 15)
+        self.assertEqual(flt(progress[0].reserved_qty), 15)
+        self.assertEqual(flt(progress[0].invoiced_qty), 0)
 
     # ------------------------------------------------------------------ C1
     def test_c1_traceability_lists_everything_individually(self):

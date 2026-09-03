@@ -127,8 +127,9 @@ def _handle_intake(doc, rows, warehouse_field, location_field="storage_location"
             )
         batch_no = next(iter(batches))
 
-        rate, price_list, _currency = resolve_selling_rate(
-            customer, row.item_code, company=doc.company, qty=row.qty
+        price = resolve_selling_rate(
+            customer, row.item_code, company=doc.company, qty=row.qty,
+            posting_date=doc.posting_date,
         )
         prepared.append(
             frappe._dict(
@@ -137,8 +138,10 @@ def _handle_intake(doc, rows, warehouse_field, location_field="storage_location"
                 warehouse=warehouse,
                 location=location,
                 batch_no=batch_no,
-                rate=rate,
-                price_list=price_list,
+                rate=price.rate,
+                price_list=price.price_list,
+                currency=price.currency,
+                conversion_rate=price.conversion_rate,
             )
         )
 
@@ -189,10 +192,11 @@ def _make_concept_invoice(doc, item):
             "company": doc.company,
             "posting_date": doc.posting_date,
             "set_posting_time": 1,
-            "currency": frappe.get_cached_value(
-                "Price List", item.price_list, "currency"
-            ),
-            "conversion_rate": 1,
+            # Currency of the Price List the rate came from, and the real
+            # exchange rate to the company's own currency on this date — never
+            # a hardcoded 1.
+            "currency": item.currency,
+            "conversion_rate": item.conversion_rate,
             "update_stock": 1,
             "selling_price_list": item.price_list,
             "wms_fob_source_doctype": doc.doctype,
@@ -232,7 +236,7 @@ def restock_on_invoice_submit(doc, method=None):
     quantity back at zero value — same warehouse, same location, same batch."""
     sales = frappe.get_all(
         "WMS FOB Sale",
-        filters={"sales_invoice": doc.name},
+        filters={"sales_invoice": doc.name, "work_order": ("is", "not set")},
         fields=[
             "name", "item_code", "batch_no", "qty", "customer", "ownership_type",
             "warehouse", "storage_location", "restock_stock_entry", "company",
@@ -269,9 +273,12 @@ def discard_concept_invoice(doc, method=None):
     pointing at it would otherwise block the deletion outright. The material
     simply remains at cost, un-invoiced, for as long as it takes.
     """
+    # Type 3 rows only. A Type 4 row (which carries a Work Order) is released
+    # by production.release_fob_reservations — and since both run on the same
+    # hook, this one must not clear the link out from under it first.
     sales = frappe.get_all(
         "WMS FOB Sale",
-        filters={"sales_invoice": doc.name},
+        filters={"sales_invoice": doc.name, "work_order": ("is", "not set")},
         fields=["name", "restock_stock_entry"],
     )
     for sale in sales:

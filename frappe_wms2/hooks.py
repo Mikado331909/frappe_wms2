@@ -59,11 +59,21 @@ doc_events = {
     # FOB Part 2: confirming the concept invoice is what triggers the
     # zero-valuation restock — never the intake itself.
     "Sales Invoice": {
-        "on_submit": "frappe_wms2.wms.fob_direct.restock_on_invoice_submit",
+        "on_submit": [
+            "frappe_wms2.wms.fob_direct.restock_on_invoice_submit",
+            # Type 4: reserved -> invoiced only when the invoice is real.
+            "frappe_wms2.wms.production.settle_fob_reservations_on_submit",
+        ],
         # A discarded concept invoice must remain deletable: the audit row
         # releases its link and records the discard.
-        "on_trash": "frappe_wms2.wms.fob_direct.discard_concept_invoice",
-        "on_cancel": "frappe_wms2.wms.fob_direct.discard_concept_invoice",
+        "on_trash": [
+            "frappe_wms2.wms.fob_direct.discard_concept_invoice",
+            "frappe_wms2.wms.production.release_fob_reservations",
+        ],
+        "on_cancel": [
+            "frappe_wms2.wms.fob_direct.discard_concept_invoice",
+            "frappe_wms2.wms.production.release_fob_reservations",
+        ],
     },
     "Purchase Invoice": {
         "before_validate": "frappe_wms2.wms.ownership.before_validate_purchase_invoice",

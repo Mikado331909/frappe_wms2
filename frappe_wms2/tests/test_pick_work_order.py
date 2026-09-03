@@ -39,7 +39,10 @@ class TestPickWorkOrder(FOBFixtures):
             "wip_warehouse": self.wip_warehouse,
             "fg_warehouse": WAREHOUSE,
             "source_warehouse": self.wh_trimmings,
-            "skip_transfer": 1,
+            # skip_transfer OFF: this is the flow where material really is
+            # transferred to WIP first, which is what ERPNext's own
+            # transferred_qty bookkeeping tracks.
+            "skip_transfer": 0,
         }
         if with_sales_order:
             so = self.new_sales_order(customer or self.customer_a, finished, qty)
@@ -184,6 +187,22 @@ class TestPickWorkOrder(FOBFixtures):
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0].work_order, wo.name)
 
+        # Item 1: the Work-Order group uses ERPNext's own transfer purpose...
+        self.assertEqual(entries[0].purpose, "Material Transfer for Manufacture")
+
+        # ...so ERPNext's native bookkeeping updated itself: the Work Order
+        # now knows material was transferred, and how far along it is.
+        # (There is no `per_transferred` column on Work Order in v16.26.2 —
+        # the progress the form shows is derived from this field against the
+        # ordered qty.)
+        wo_after = frappe.db.get_value(
+            "Work Order", wo.name,
+            ["qty", "material_transferred_for_manufacturing", "status"],
+            as_dict=True,
+        )
+        self.assertEqual(flt(wo_after.material_transferred_for_manufacturing), 5)
+        self.assertEqual(flt(wo_after.qty), 5)   # fully transferred
+
         # The picked material is now ATTRIBUTED to the Work Order: the Stock
         # Entry carries it, so the movement is findable per Work Order.
         picked = frappe.get_all(
@@ -192,6 +211,21 @@ class TestPickWorkOrder(FOBFixtures):
             fields=["name", "purpose"],
         )
         self.assertIn(entries[0].name, [p.name for p in picked])
+
+        # ERPNext's OWN Work Order bookkeeping picked the transfer up.
+        wo.reload()
+        self.assertEqual(entries[0].purpose, "Material Transfer for Manufacture")
+        transferred = {r.item_code: flt(r.transferred_qty) for r in wo.required_items}
+        self.assertEqual(transferred.get(raw), 10)
+
+        # Header-level progress updates too. Measured, not assumed: v16.26.2
+        # recomputes `material_transferred_for_manufacturing` from the ACTUAL
+        # item-level transfers, so it lands on 5 finished units' worth (10
+        # units of a 2-per-unit requirement) even though the pick sets no
+        # `fg_completed_qty` — which it deliberately does not, since a pick
+        # knows how much material it moved, not how many finished units that
+        # covers.
+        self.assertEqual(flt(wo.material_transferred_for_manufacturing), 5)
 
         # It is NOT counted as consumption yet, and deliberately so: the pick
         # moves material bulk -> WIP, and the Manufacture booking later moves
@@ -265,6 +299,11 @@ class TestPickWorkOrder(FOBFixtures):
         by_wo = {e.work_order: e for e in entries}
         self.assertEqual(set(by_wo), {wo.name, None})
 
+        # The Work-Order group gets the native purpose; the ordinary
+        # customer-shipment group is untouched.
+        self.assertEqual(by_wo[wo.name].purpose, "Material Transfer for Manufacture")
+        self.assertEqual(by_wo[None].purpose, "Material Transfer")
+
         plain = frappe.get_doc("Stock Entry", by_wo[None].name)
         self.assertEqual([r.item_code for r in plain.items], [raw_plain])
         self.assertEqual(sum(flt(r.qty) for r in plain.items), 6)
@@ -308,6 +347,31 @@ class TestPickWorkOrder(FOBFixtures):
         self.assertIn("Sales Order", message)
         frappe.db.rollback()
 
+    # ------------------------------------------------------------------ W8
+    def test_w8_material_request_context_lookup(self):
+        """Item 2: the lookup the form calls on selection returns the same
+        answer the server derives on save."""
+        from frappe_wms2.wms.doctype.wms_pick_batch.wms_pick_batch import (
+            get_material_request_context,
+            get_mr_order_customer,
+        )
+
+        _raw, _batch, _loc, wo = self.material_for_work_order(per_unit=2, wo_qty=3)
+        mr = self.mr_for_work_order(wo)
+
+        context = get_material_request_context(mr.name)
+        self.assertEqual(context["customer"], self.customer_a)
+        self.assertEqual(context["work_order"], wo.name)
+        self.assertTrue(context["sales_order"])
+
+        # Identical to what save-time derivation produces — one source, shown
+        # earlier, not a second implementation.
+        sales_order, customer, work_order = get_mr_order_customer(mr.name)
+        self.assertEqual(
+            (context["sales_order"], context["customer"], context["work_order"]),
+            (sales_order, customer, work_order),
+        )
+
     # ------------------------------------------------------------------ W7
     def test_w7_plain_pick_lists_are_completely_unchanged(self):
         """Regression: no Work Order anywhere -> exactly one Stock Entry with
@@ -326,7 +390,11 @@ class TestPickWorkOrder(FOBFixtures):
         self.assertFalse(entries[0].work_order)
 
         se = frappe.get_doc("Stock Entry", pl.stock_entry)
+        # Regression: a plain pick keeps the GENERIC purpose and sets no
+        # Work Order bookkeeping at all.
         self.assertEqual(se.purpose, "Material Transfer")
+        self.assertFalse(se.work_order)
+        self.assertFalse(flt(se.fg_completed_qty))
         self.assertEqual(sum(flt(r.qty) for r in se.items), 7)
         self.assertEqual(se.items[0].batch_no, batch)
         for line in pl.items:

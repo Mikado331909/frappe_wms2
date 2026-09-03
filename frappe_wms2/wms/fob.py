@@ -142,15 +142,26 @@ def get_item_material(item_code, context=""):
 # ----------------------------------------------------------- 0.4 pricing
 
 
-def resolve_selling_rate(customer, item_code, company=None, qty=1, uom=None):
-    """The selling rate for (customer, item) from ERPNext's OWN Price List
-    mechanism. Shared by Type 3 and Type 4 concept invoices.
+def resolve_selling_rate(customer, item_code, company=None, qty=1, uom=None,
+                        posting_date=None):
+    """Price AND currency for (customer, item), from ERPNext's own mechanisms.
 
-    No cost+margin, no fallback to cost, no fallback to zero: if ERPNext
-    resolves no price, the caller must refuse its whole action.
+    Shared by Type 3 and Type 4 concept invoices — one implementation, so the
+    two cannot drift apart. Returns a dict:
+
+        rate             the Price List rate
+        price_list       the list it came from
+        currency         THAT list's currency — the invoice must be in it,
+                         never in a currency inherited from another document
+        conversion_rate  currency -> the company's own currency on the posting
+                         date; 1 only when they are genuinely the same
+
+    No cost+margin, no fallback to cost, no fallback to zero, and no fallback
+    to a conversion rate of 1: if ERPNext resolves no price or no exchange
+    rate, the caller must refuse its whole action.
     """
     from erpnext.accounts.party import get_default_price_list
-    from erpnext.stock.get_item_details import get_item_details
+    from erpnext.stock.get_item_details import get_item_details, get_price_list_rate_for
 
     # Read the party's price list from the DATABASE, not from the document
     # cache: a Price List assigned to a customer moments earlier (or by
@@ -200,8 +211,16 @@ def resolve_selling_rate(customer, item_code, company=None, qty=1, uom=None):
         }
     )
 
+    # `get_item_details` returns the rate already converted into the
+    # document's currency, using whatever exchange rate it resolves for the
+    # party — so on a foreign-currency Price List it hands back the rate in
+    # COMPANY currency, not the 25 USD that is actually on the list.
+    # `get_price_list_rate_for` is ERPNext's own accessor for the raw list
+    # rate, which is what a price list denominated in USD has to invoice at.
     details = get_item_details(ctx)
-    rate = flt(details.get("price_list_rate")) or flt(details.get("rate"))
+    rate = flt(get_price_list_rate_for(ctx, item_code))
+    if not rate:
+        rate = flt(details.get("price_list_rate")) or flt(details.get("rate"))
 
     if not rate:
         frappe.throw(
@@ -215,7 +234,63 @@ def resolve_selling_rate(customer, item_code, company=None, qty=1, uom=None):
             title=_("No price for this customer and item"),
         )
 
-    return rate, price_list, currency
+    conversion_rate = resolve_conversion_rate(
+        currency, company, customer, item_code, posting_date
+    )
+
+    return frappe._dict(
+        rate=rate,
+        price_list=price_list,
+        currency=currency,
+        conversion_rate=conversion_rate,
+    )
+
+
+def resolve_conversion_rate(currency, company, customer, item_code,
+                            posting_date=None):
+    """The price-list currency expressed in the company's own currency.
+
+    Hardcoding 1 is only correct when the two currencies are the same. For an
+    export business priced in a customer's currency it silently books one unit
+    of foreign currency as one unit of base currency — a real financial error,
+    not a rounding one.
+
+    `get_exchange_rate()` returns 1 for an identical pair and **0.0** when it
+    cannot find or fetch a rate (verified in v16.26.2 source); 0.0 is refused
+    rather than used or replaced with a guess.
+    """
+    from erpnext.setup.utils import get_exchange_rate
+
+    company = company or frappe.defaults.get_global_default("company")
+    company_currency = frappe.get_cached_value("Company", company, "default_currency")
+
+    if not company_currency:
+        frappe.throw(
+            _("Company {0} has no default currency.").format(frappe.bold(company))
+        )
+    if currency == company_currency:
+        return 1
+
+    posting_date = posting_date or frappe.utils.nowdate()
+    rate = flt(get_exchange_rate(currency, company_currency, posting_date))
+
+    if not rate:
+        frappe.throw(
+            _(
+                "No exchange rate found for <b>{0} to {1}</b> on {2}, so the "
+                "concept invoice for item {3} and customer {4} cannot be "
+                "created. Add a Currency Exchange record for that date — FOB "
+                "invoicing never falls back to a rate of 1."
+            ).format(
+                currency,
+                company_currency,
+                frappe.utils.formatdate(posting_date),
+                frappe.bold(item_code),
+                frappe.bold(customer),
+            ),
+            title=_("No exchange rate"),
+        )
+    return rate
 
 
 # ------------------------------------------------------- WMS FOB Sale rows

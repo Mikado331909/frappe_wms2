@@ -550,13 +550,15 @@ class TestFOBType4(FOBFixtures):
 
         progress = frappe.get_all(
             "WMS FOB Invoicing Progress",
-            filters={"finished_good_batch": ctx.fg_batch,
-                     "raw_material_batch": ctx.batch},
-            fields=["consumed_qty", "invoiced_qty"],
+            filters={"work_order": ctx.wo, "raw_material_batch": ctx.batch},
+            fields=["consumed_qty", "reserved_qty", "invoiced_qty"],
         )
         self.assertEqual(len(progress), 1)
         self.assertEqual(flt(progress[0].consumed_qty), ctx.per_unit * 5)
-        self.assertEqual(flt(progress[0].invoiced_qty), ctx.per_unit * 5)
+        # The invoice is still a DRAFT, so the quantity is reserved, not
+        # invoiced — it only becomes invoiced when the invoice is submitted.
+        self.assertEqual(flt(progress[0].reserved_qty), ctx.per_unit * 5)
+        self.assertEqual(flt(progress[0].invoiced_qty), 0)
 
     # ------------------------------------------------------------------ T5
     def test_t5_split_shipments_never_exceed_actual_consumption(self):
@@ -579,12 +581,13 @@ class TestFOBType4(FOBFixtures):
 
         progress = frappe.get_all(
             "WMS FOB Invoicing Progress",
-            filters={"finished_good_batch": ctx.fg_batch,
-                     "raw_material_batch": ctx.batch},
-            fields=["consumed_qty", "invoiced_qty"],
+            filters={"work_order": ctx.wo, "raw_material_batch": ctx.batch},
+            fields=["consumed_qty", "reserved_qty", "invoiced_qty"],
         )[0]
         self.assertEqual(flt(progress.consumed_qty), consumed)
-        self.assertEqual(flt(progress.invoiced_qty), consumed)
+        # Both invoices are drafts: fully reserved, nothing billed yet.
+        self.assertEqual(flt(progress.reserved_qty), consumed)
+        self.assertEqual(flt(progress.invoiced_qty), 0)
 
         # (b) The cap is HARD, not proportional bookkeeping: a run that
         #     actually consumed LESS than the BOM implies is invoiced at what
@@ -599,12 +602,12 @@ class TestFOBType4(FOBFixtures):
 
         lean_progress = frappe.get_all(
             "WMS FOB Invoicing Progress",
-            filters={"finished_good_batch": lean.fg_batch,
-                     "raw_material_batch": lean.batch},
-            fields=["consumed_qty", "invoiced_qty"],
+            filters={"work_order": lean.wo, "raw_material_batch": lean.batch},
+            fields=["consumed_qty", "reserved_qty", "invoiced_qty"],
         )[0]
         self.assertEqual(flt(lean_progress.consumed_qty), 14)
-        self.assertEqual(flt(lean_progress.invoiced_qty), 14)
+        self.assertEqual(flt(lean_progress.reserved_qty), 14)
+        self.assertEqual(flt(lean_progress.invoiced_qty), 0)
 
     # ------------------------------------------------------------------ T6
     def test_t6_missing_price_blocks_the_whole_delivery(self):

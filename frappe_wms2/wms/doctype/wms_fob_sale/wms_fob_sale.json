@@ -29,7 +29,8 @@
   "sales_invoice",
   "column_break_result",
   "restock_stock_entry",
-  "concept_discarded"
+  "concept_discarded",
+  "invoice_settled"
  ],
  "fields": [
   {
@@ -200,6 +201,14 @@
    "label": "Concept Discarded",
    "read_only": 1,
    "description": "The concept invoice was deleted or cancelled instead of submitted. The material stays at cost, un-invoiced — a valid parked state."
+  },
+  {
+   "default": "0",
+   "fieldname": "invoice_settled",
+   "fieldtype": "Check",
+   "label": "Invoice Settled",
+   "read_only": 1,
+   "description": "The invoice behind this row was submitted, so its quantity moved from reserved to invoiced."
   }
  ],
  "index_web_pages_for_search": 1,

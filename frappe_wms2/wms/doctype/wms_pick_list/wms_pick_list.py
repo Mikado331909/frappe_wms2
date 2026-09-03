@@ -343,9 +343,37 @@ class WMSPickList(Document):
 
         entries = []
         for work_order in ordered:
-            se = self._new_stock_entry("Material Transfer")
+            # A Work-Order group uses ERPNext's OWN transfer-to-production
+            # purpose, so its native bookkeeping updates: transferred qty,
+            # % transferred, material availability and the warehouse the Work
+            # Order then defaults to. A generic "Material Transfer" carrying
+            # `work_order` does NOT trigger any of that.
+            #
+            # Safe since CONSUMPTION_PURPOSES became ("Manufacture",): neither
+            # transfer purpose is counted as consumption, so this cannot
+            # reintroduce the Part 0 double counting.
+            purpose = (
+                "Material Transfer for Manufacture" if work_order
+                else "Material Transfer"
+            )
+            se = self._new_stock_entry(purpose)
             if work_order:
                 se.work_order = work_order
+                # ERPNext sums fg_completed_qty (NOT the raw quantity) into
+                # `material_transferred_for_manufacturing`, and skips the
+                # update entirely when it is zero — verified in
+                # WorkOrder.get_transferred_or_manufactured_qty on 16.26.2.
+                # `from_bom` must be set or ERPNext blanks fg_completed_qty
+                # in validate() ("if not self.from_bom: fg_completed_qty = 0"),
+                # and the native transferred-qty update then does nothing.
+                # The BOM is only referenced, never used to rebuild the lines:
+                # the picker's actual batches and locations stay exactly as
+                # picked.
+                se.from_bom = 1
+                se.bom_no = frappe.db.get_value("Work Order", work_order, "bom_no")
+                se.fg_completed_qty = self._units_covered(
+                    work_order, groups[work_order]
+                )
                 se.remarks = _(
                     "Pick list {0} — customer {1} — Work Order {2}"
                 ).format(self.name, self.customer, work_order)
@@ -372,6 +400,45 @@ class WMSPickList(Document):
             entries.append(se)
 
         return entries
+
+    def _units_covered(self, work_order, rows):
+        """How many finished units the picked material covers.
+
+        ERPNext's "For Quantity" on a transfer-to-production entry means
+        finished units, not raw quantity. It is the limiting item that
+        decides: 20 zips and 4 metres of fabric for a garment needing 2 zips
+        and 1 metre cover 4 garments, not 10.
+
+        Capped at what the Work Order still has outstanding, because ERPNext
+        refuses a transfer beyond the planned quantity (plus its configured
+        allowance) with StockOverProductionError.
+        """
+        from frappe_wms2.wms.production import get_bom_qty_per_unit
+
+        wo = frappe.db.get_value(
+            "Work Order",
+            work_order,
+            ["qty", "material_transferred_for_manufacturing"],
+            as_dict=True,
+        )
+        outstanding = flt(wo.qty) - flt(wo.material_transferred_for_manufacturing)
+        if outstanding <= 0:
+            return 0
+
+        covered = None
+        for row in rows:
+            per_unit = get_bom_qty_per_unit(work_order, row.item_code)
+            if not per_unit:
+                continue  # not a BOM material of this Work Order
+            units = flt(row.picked_qty) / flt(per_unit)
+            covered = units if covered is None else min(covered, units)
+
+        if covered is None:
+            # Nothing recognisable from the BOM: report the transfer without
+            # claiming production progress rather than guessing a number.
+            return 0
+
+        return min(covered, outstanding)
 
     def make_empty_corrections(self):
         rows = [

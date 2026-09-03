@@ -23,6 +23,51 @@ frappe.ui.form.on("WMS Pick Batch", {
 	},
 });
 
+// Item 2: the customer used to appear only after saving, because the
+// derivation is server-side. This pulls the same answer the moment a
+// Material Request is chosen, so the row and the header fill in straight
+// away. The server still derives and enforces it on save — this only shows
+// it earlier.
+frappe.ui.form.on("WMS Pick Batch MR", {
+	material_request(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		if (!row.material_request) {
+			frappe.model.set_value(cdt, cdn, {
+				sales_order: null,
+				customer: null,
+				work_order: null,
+			});
+			return;
+		}
+
+		frappe.call({
+			method: "frappe_wms2.wms.doctype.wms_pick_batch.wms_pick_batch.get_material_request_context",
+			args: { material_request: row.material_request },
+			callback(r) {
+				if (!r.message) return;
+				frappe.model.set_value(cdt, cdn, {
+					sales_order: r.message.sales_order,
+					customer: r.message.customer,
+					work_order: r.message.work_order,
+				});
+				if (!frm.doc.customer) {
+					frm.set_value("customer", r.message.customer);
+				} else if (frm.doc.customer !== r.message.customer) {
+					// The hard one-customer rule still throws on save; this is
+					// just the earliest possible warning.
+					frappe.show_alert({
+						message: __(
+							"{0} belongs to {1}, but this batch is for {2} — a pick batch holds one customer only.",
+							[row.material_request, r.message.customer, frm.doc.customer]
+						),
+						indicator: "red",
+					});
+				}
+			},
+		});
+	},
+});
+
 function select_groups_and_generate(frm) {
 	frappe.call({
 		method: "frappe_wms2.wms.doctype.wms_pick_batch.wms_pick_batch.get_item_groups",
@@ -43,6 +88,11 @@ function select_groups_and_generate(frm) {
 						cannot_add_rows: true,
 						cannot_delete_rows: true,
 						in_place_edit: true,
+						// Item 3: hide the grid's own row-selector column, so
+						// the only checkbox on screen is the "Pick now" one
+						// this dialog actually reads.
+						check_all_rows: false,
+						allow_bulk_edit: false,
 						data: groups.map((g) => ({
 							select: 0,
 							item_group: g.item_group,
@@ -106,6 +156,15 @@ function select_groups_and_generate(frm) {
 				},
 			});
 			dialog.show();
+
+			// The row-selector checkbox column is rendered by the grid
+			// itself; there is no flag for it on a dialog grid, so it is
+			// removed after render. Two identical-looking checkboxes side by
+			// side read as a double selection.
+			const grid = dialog.fields_dict.groups.grid;
+			grid.wrapper.find(".grid-row-check").addClass("hidden");
+			grid.wrapper.find(".grid-heading-row .grid-row-check").addClass("hidden");
 		},
 	});
 }
+

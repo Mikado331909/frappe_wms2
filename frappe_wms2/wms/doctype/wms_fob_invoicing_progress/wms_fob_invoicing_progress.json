@@ -17,6 +17,7 @@
   "qty_section",
   "consumed_qty",
   "column_break_qty",
+  "reserved_qty",
   "invoiced_qty"
  ],
  "fields": [
@@ -103,12 +104,20 @@
    "fieldtype": "Column Break"
   },
   {
+   "fieldname": "reserved_qty",
+   "fieldtype": "Float",
+   "label": "Reserved qty",
+   "read_only": 1,
+   "in_list_view": 1,
+   "description": "On a DRAFT concept invoice but not yet submitted. Blocks the same material from being put on a second concept invoice, without counting as billed. Released again if the draft is discarded."
+  },
+  {
    "fieldname": "invoiced_qty",
    "fieldtype": "Float",
    "label": "Invoiced qty",
    "read_only": 1,
    "in_list_view": 1,
-   "description": "Cumulative quantity already put on concept invoices. Never exceeds Consumed qty — that is a hard cap, not a warning."
+   "description": "Cumulative quantity on SUBMITTED invoices. Only moves when a concept invoice is actually submitted; never exceeds Consumed qty."
   }
  ],
  "index_web_pages_for_search": 1,

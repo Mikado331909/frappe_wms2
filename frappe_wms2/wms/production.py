@@ -269,6 +269,7 @@ def invoice_fob_material_on_delivery(doc, method=None):
         return
 
     lines, progress_updates, audit = [], [], []
+    currencies = set()
 
     for dn_row in doc.get("items") or []:
         for fg_batch, shipped_qty in _shipped_batches(dn_row).items():
@@ -299,32 +300,41 @@ def invoice_fob_material_on_delivery(doc, method=None):
                 progress = _get_progress(
                     work_order, rm_batch, fg_batch, item_code, consumed, doc, stamp
                 )
-                remaining = flt(progress.consumed_qty) - flt(progress.invoiced_qty)
+                # Reserved = on a draft that has not been submitted. Counted
+                # here so the same material cannot be put on a second concept
+                # invoice, but NOT counted as billed.
+                remaining = (
+                    flt(progress.consumed_qty)
+                    - flt(progress.invoiced_qty)
+                    - flt(progress.reserved_qty)
+                )
                 qty = min(share, remaining)
                 if qty <= 0:
                     continue
 
-                rate, price_list, _currency = resolve_selling_rate(
-                    doc.customer, item_code, company=doc.company, qty=qty
+                price = resolve_selling_rate(
+                    doc.customer, item_code, company=doc.company, qty=qty,
+                    posting_date=doc.posting_date,
                 )
 
                 lines.append(
                     {
                         "item_code": item_code,
                         "qty": qty,
-                        "rate": rate,
+                        "rate": price.rate,
                         "uom": frappe.get_cached_value("Item", item_code, "stock_uom"),
                         "conversion_factor": 1,
                     }
                 )
                 progress_updates.append((progress.name, qty))
+                currencies.add((price.currency, price.conversion_rate))
                 audit.append(
                     {
                         "item_code": item_code,
                         "batch_no": rm_batch,
                         "qty": qty,
-                        "rate": rate,
-                        "price_list": price_list,
+                        "rate": price.rate,
+                        "price_list": price.price_list,
                         "finished_good_batch": fg_batch,
                         "work_order": work_order,
                         "ownership_type": stamp.get(OWNERSHIP_FIELD),
@@ -337,15 +347,18 @@ def invoice_fob_material_on_delivery(doc, method=None):
         # design; a zero-line invoice is simply not created.
         return
 
-    invoice = _make_draft_invoice(doc, lines)
+    invoice = _make_draft_invoice(doc, lines, currencies)
 
+    # RESERVE, do not invoice: the invoice is a draft the accountant may still
+    # discard. Booking it as invoiced here permanently understated what is owed
+    # if the draft never got submitted — a silent underbilling.
     for progress_name, qty in progress_updates:
         frappe.db.set_value(
             "WMS FOB Invoicing Progress",
             progress_name,
-            "invoiced_qty",
+            "reserved_qty",
             flt(frappe.db.get_value(
-                "WMS FOB Invoicing Progress", progress_name, "invoiced_qty"
+                "WMS FOB Invoicing Progress", progress_name, "reserved_qty"
             )) + flt(qty),
         )
 
@@ -457,9 +470,24 @@ def _invoice_line_location(company):
         return None
 
 
-def _make_draft_invoice(doc, lines):
+def _make_draft_invoice(doc, lines, currencies):
     """One DRAFT invoice per Delivery Note. No stock movement of its own:
-    Type 4's raw material left stock at pick time."""
+    Type 4's raw material left stock at pick time.
+
+    The invoice is denominated in the currency of the Price List the rates
+    were actually resolved from — NOT the Delivery Note's currency, which may
+    be a different one entirely and would make the invoice claim a currency
+    its own line rates were never calculated in.
+    """
+    if len(currencies) > 1:
+        frappe.throw(
+            _(
+                "The lines for this Delivery Note resolved to more than one "
+                "currency ({0}). One invoice cannot carry two currencies."
+            ).format(", ".join(sorted(c for c, _r in currencies))),
+            title=_("Mixed currencies"),
+        )
+    currency, conversion_rate = next(iter(currencies))
     location = _invoice_line_location(doc.company)
     if location:
         for line in lines:
@@ -471,8 +499,8 @@ def _make_draft_invoice(doc, lines):
             "customer": doc.customer,
             "company": doc.company,
             "posting_date": doc.posting_date,
-            "currency": doc.currency,
-            "conversion_rate": doc.conversion_rate or 1,
+            "currency": currency,
+            "conversion_rate": conversion_rate,
             "update_stock": 0,
             "wms_fob_source_doctype": "Delivery Note",
             "wms_fob_source_name": doc.name,
@@ -582,3 +610,87 @@ def _finished_batch_figures(batch_no):
         "stock_entry": first.voucher_no if first else None,
         "item_code": frappe.db.get_value("Batch", batch_no, "item"),
     }
+
+
+# ------------------------------------- reserved -> invoiced, and releases
+#
+# A concept invoice reserves the quantity when it is created and only bills it
+# when it is actually submitted. Discarding the draft releases the reservation,
+# so the material becomes billable again on the next Delivery Note. Mirrors the
+# Type 3 discard path in fob_direct.py rather than inventing a second pattern.
+
+
+def settle_fob_reservations_on_submit(doc, method=None):
+    """Move this invoice's reserved quantity into invoiced."""
+    for sale in _fob_sale_rows(doc):
+        progress = _progress_for(sale)
+        if not progress or sale.invoice_settled:
+            continue
+
+        qty = flt(sale.qty)
+        frappe.db.set_value(
+            "WMS FOB Invoicing Progress",
+            progress,
+            {
+                "reserved_qty": max(
+                    0.0,
+                    flt(frappe.db.get_value(
+                        "WMS FOB Invoicing Progress", progress, "reserved_qty"
+                    )) - qty,
+                ),
+                "invoiced_qty": flt(frappe.db.get_value(
+                    "WMS FOB Invoicing Progress", progress, "invoiced_qty"
+                )) + qty,
+            },
+        )
+        frappe.db.set_value("WMS FOB Sale", sale.name, "invoice_settled", 1)
+
+
+def release_fob_reservations(doc, method=None):
+    """Give the quantity back when a concept invoice is discarded.
+
+    Handles both states: a draft that was never submitted releases its
+    reservation; a submitted invoice that is cancelled gives back what it had
+    already billed. Either way the material becomes billable again instead of
+    silently disappearing from the remaining-to-invoice figure.
+    """
+    for sale in _fob_sale_rows(doc):
+        progress = _progress_for(sale)
+        if not progress:
+            continue
+
+        field = "invoiced_qty" if sale.invoice_settled else "reserved_qty"
+        frappe.db.set_value(
+            "WMS FOB Invoicing Progress",
+            progress,
+            field,
+            max(
+                0.0,
+                flt(frappe.db.get_value(
+                    "WMS FOB Invoicing Progress", progress, field
+                )) - flt(sale.qty),
+            ),
+        )
+        frappe.db.set_value(
+            "WMS FOB Sale",
+            sale.name,
+            {"invoice_settled": 0, "concept_discarded": 1, "sales_invoice": None},
+        )
+
+
+def _fob_sale_rows(invoice):
+    """The Type 4 audit rows behind a Sales Invoice (Type 3 rows have no Work
+    Order and are handled by fob_direct)."""
+    return frappe.get_all(
+        "WMS FOB Sale",
+        filters={"sales_invoice": invoice.name, "work_order": ("is", "set")},
+        fields=["name", "qty", "work_order", "batch_no", "invoice_settled"],
+    )
+
+
+def _progress_for(sale):
+    return frappe.db.get_value(
+        "WMS FOB Invoicing Progress",
+        {"work_order": sale.work_order, "raw_material_batch": sale.batch_no},
+        "name",
+    )

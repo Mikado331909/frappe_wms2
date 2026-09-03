@@ -414,3 +414,22 @@ def make_material_request_for_work_order(work_order, qty_multiplier=1):
     )
     mr.insert(ignore_permissions=True)
     return mr
+
+
+@frappe.whitelist()
+def get_material_request_context(material_request):
+    """Sales Order / customer / Work Order behind a Material Request.
+
+    Item 2: the bundle form calls this the moment a Material Request is
+    picked, so the row fills in immediately instead of only on save. It is
+    the SAME derivation the server uses on save (`get_mr_order_customer`),
+    not a second implementation that could drift — the save-time check stays
+    authoritative, this only shows the answer earlier.
+    """
+    frappe.has_permission("Material Request", doc=material_request, throw=True)
+    sales_order, customer, work_order = get_mr_order_customer(material_request)
+    return {
+        "sales_order": sales_order,
+        "customer": customer,
+        "work_order": work_order,
+    }
