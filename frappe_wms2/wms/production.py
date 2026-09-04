@@ -270,12 +270,15 @@ def invoice_fob_material_on_delivery(doc, method=None):
 
     lines, progress_updates, audit = [], [], []
     currencies = set()
+    work_orders_shipped = []
 
     for dn_row in doc.get("items") or []:
         for fg_batch, shipped_qty in _shipped_batches(dn_row).items():
             work_order = get_work_order_for_batch(fg_batch)
             if not work_order:
                 continue
+            if work_order not in work_orders_shipped:
+                work_orders_shipped.append(work_order)
 
             for (item_code, rm_batch), consumed in get_work_order_consumption(
                 work_order
@@ -341,6 +344,12 @@ def invoice_fob_material_on_delivery(doc, method=None):
                         "source_row": dn_row.name,
                     }
                 )
+
+    # Additive second calculation: extra material deliberately requested for
+    # these Work Orders beyond what their BOM plans. The BOM-ratio lines above
+    # are untouched.
+    _append_supplementary_lines(doc, work_orders_shipped, lines,
+                                progress_updates, audit, currencies)
 
     if not lines:
         # Nothing of this customer's Type 4 material was consumed — silent, by
@@ -428,7 +437,13 @@ def _get_progress(work_order, rm_batch, fg_batch, item_code, consumed, doc, stam
     """
     name = frappe.db.get_value(
         "WMS FOB Invoicing Progress",
-        {"work_order": work_order, "raw_material_batch": rm_batch},
+        {
+            "work_order": work_order,
+            "raw_material_batch": rm_batch,
+            # Never the supplementary row: that one is billed on different
+            # grounds and tracked separately.
+            "supplementary_material_request": ("is", "not set"),
+        },
         "name",
     )
     if name:
@@ -684,13 +699,220 @@ def _fob_sale_rows(invoice):
     return frappe.get_all(
         "WMS FOB Sale",
         filters={"sales_invoice": invoice.name, "work_order": ("is", "set")},
-        fields=["name", "qty", "work_order", "batch_no", "invoice_settled"],
+        fields=["name", "qty", "work_order", "batch_no", "invoice_settled",
+                "supplementary_material_request"],
     )
 
 
 def _progress_for(sale):
+    """The progress row this audit row draws down — the supplementary row when
+    the sale line billed extra material, the BOM-driven row otherwise."""
+    supplementary = sale.get("supplementary_material_request")
     return frappe.db.get_value(
         "WMS FOB Invoicing Progress",
-        {"work_order": sale.work_order, "raw_material_batch": sale.batch_no},
+        {
+            "work_order": sale.work_order,
+            "raw_material_batch": sale.batch_no,
+            "supplementary_material_request": (
+                supplementary if supplementary else ("is", "not set")
+            ),
+        },
         "name",
     )
+
+
+@frappe.whitelist()
+def get_open_concept_invoices(delivery_note):
+    """Draft concept invoices generated from a Delivery Note.
+
+    Part 2: cancelling a Delivery Note deliberately leaves a linked concept
+    invoice and its reservation alone. That is the agreed boundary — this only
+    makes it visible at the moment it matters. Submitted invoices are not
+    returned: they are untouched by the cancellation either way, which is the
+    ordinary, unremarkable outcome.
+    """
+    frappe.has_permission("Delivery Note", doc=delivery_note, throw=True)
+
+    invoices = frappe.get_all(
+        "Sales Invoice",
+        filters={
+            "wms_fob_source_doctype": "Delivery Note",
+            "wms_fob_source_name": delivery_note,
+            "docstatus": 0,
+        },
+        fields=["name", "customer", "grand_total", "currency"],
+    )
+
+    for invoice in invoices:
+        invoice["items"] = frappe.get_all(
+            "Sales Invoice Item",
+            filters={"parent": invoice["name"]},
+            fields=["item_code", "qty", "rate"],
+        )
+        invoice["reserved"] = _reserved_for_invoice(invoice["name"])
+    return invoices
+
+
+def _reserved_for_invoice(sales_invoice):
+    """How much is still reserved on account of this concept invoice."""
+    total = 0.0
+    for sale in frappe.get_all(
+        "WMS FOB Sale",
+        filters={"sales_invoice": sales_invoice, "invoice_settled": 0},
+        fields=["qty"],
+    ):
+        total += flt(sale.qty)
+    return total
+
+
+# ------------------------------------ supplementary (beyond-BOM) material
+
+
+def _append_supplementary_lines(doc, work_orders, lines, progress_updates,
+                                audit, currencies):
+    """Bill extra material that was deliberately requested beyond the BOM.
+
+    The standard calculation bills `BOM qty per unit x shipped qty`, capped by
+    actual consumption — so a run that used more than the BOM predicted can
+    never bill the excess through it, however much eventually ships. A
+    supplementary Material Request (with a mandatory reason) is what makes
+    that excess billable; this puts it on the same concept invoice as its own
+    clearly labelled line.
+
+    It rides the same reserved/invoiced protection as everything else: the
+    quantity is reserved when the draft is created and released if the draft
+    is discarded, exactly like the standard portion.
+    """
+    for work_order in work_orders:
+        requests = frappe.get_all(
+            "Material Request",
+            filters={
+                "work_order": work_order,
+                "wms_supplementary_for_work_order": 1,
+                "docstatus": 1,
+            },
+            fields=["name", "wms_extra_consumption_reason",
+                    "wms_extra_consumption_comment"],
+        )
+        if not requests:
+            continue
+
+        consumption = get_work_order_consumption(work_order)
+
+        for request in requests:
+            for item in frappe.get_all(
+                "Material Request Item",
+                filters={"parent": request.name},
+                fields=["item_code", "stock_qty", "qty"],
+            ):
+                requested = flt(item.stock_qty) or flt(item.qty)
+                if requested <= 0:
+                    continue
+
+                for (item_code, rm_batch), consumed in consumption.items():
+                    if item_code != item.item_code:
+                        continue
+
+                    stamp = frappe.db.get_value(
+                        "Batch", rm_batch,
+                        [OWNERSHIP_FIELD, CUSTOMER_FIELD], as_dict=True
+                    )
+                    if not stamp or not _is_type4(stamp.get(OWNERSHIP_FIELD)):
+                        continue
+                    if stamp.get(CUSTOMER_FIELD) != doc.customer:
+                        continue
+
+                    progress = _supplementary_progress(
+                        work_order, rm_batch, item_code, requested, doc, stamp,
+                        request
+                    )
+                    remaining = (
+                        flt(progress.consumed_qty)
+                        - flt(progress.invoiced_qty)
+                        - flt(progress.reserved_qty)
+                    )
+                    qty = min(requested, remaining)
+                    if qty <= 0:
+                        continue
+
+                    price = resolve_selling_rate(
+                        doc.customer, item_code, company=doc.company, qty=qty,
+                        posting_date=doc.posting_date,
+                    )
+                    currencies.add((price.currency, price.conversion_rate))
+
+                    reason = request.wms_extra_consumption_reason
+                    lines.append(
+                        {
+                            "item_code": item_code,
+                            "qty": qty,
+                            "rate": price.rate,
+                            "uom": frappe.get_cached_value(
+                                "Item", item_code, "stock_uom"
+                            ),
+                            "conversion_factor": 1,
+                            # Never indistinguishable from the BOM-driven line.
+                            "description": _(
+                                "Extra material beyond the BOM — {0} (reason: "
+                                "{1}{2})"
+                            ).format(
+                                request.name,
+                                reason or _("not stated"),
+                                f", {request.wms_extra_consumption_comment}"
+                                if request.wms_extra_consumption_comment else "",
+                            ),
+                        }
+                    )
+                    progress_updates.append((progress.name, qty))
+                    audit.append(
+                        {
+                            "item_code": item_code,
+                            "batch_no": rm_batch,
+                            "qty": qty,
+                            "rate": price.rate,
+                            "price_list": price.price_list,
+                            "work_order": work_order,
+                            "ownership_type": stamp.get(OWNERSHIP_FIELD),
+                            "source_row": request.name,
+                            "supplementary_material_request": request.name,
+                        }
+                    )
+
+
+def _supplementary_progress(work_order, rm_batch, item_code, requested, doc,
+                            stamp, request):
+    """A progress row of its own for the supplementary quantity.
+
+    Kept separate from the BOM-driven row for the same (Work Order, batch):
+    the two are billed on different grounds and the extra portion has to stay
+    identifiable — but both draw down through the same reserved/invoiced
+    mechanism.
+    """
+    name = frappe.db.get_value(
+        "WMS FOB Invoicing Progress",
+        {
+            "work_order": work_order,
+            "raw_material_batch": rm_batch,
+            "supplementary_material_request": request.name,
+        },
+        "name",
+    )
+    if name:
+        return frappe.get_doc("WMS FOB Invoicing Progress", name)
+
+    return frappe.get_doc(
+        {
+            "doctype": "WMS FOB Invoicing Progress",
+            "work_order": work_order,
+            "raw_material_batch": rm_batch,
+            "item_code": item_code,
+            "customer": stamp.get(CUSTOMER_FIELD),
+            "ownership_type": stamp.get(OWNERSHIP_FIELD),
+            "company": doc.company,
+            "consumed_qty": requested,
+            "invoiced_qty": 0,
+            "reserved_qty": 0,
+            "supplementary_material_request": request.name,
+            "extra_consumption_reason": request.wms_extra_consumption_reason,
+        }
+    ).insert(ignore_permissions=True)

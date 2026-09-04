@@ -433,3 +433,141 @@ def get_material_request_context(material_request):
         "customer": customer,
         "work_order": work_order,
     }
+
+
+@frappe.whitelist()
+def make_supplementary_material_request(work_order, items=None, reason=None,
+                                        comment=None):
+    """Request EXTRA raw material for a Work Order, beyond what its BOM plans.
+
+    Why this exists: Type 4 bills `BOM qty per unit x shipped qty`, so a run
+    that genuinely consumes more than the BOM predicted (rework, spoilage, a
+    correction mid-run) can never bill that excess through the normal
+    calculation — it would be written off silently, whether or not anyone
+    intended that. This creates the deliberate path to bill it.
+
+    Nothing here judges whether the extra consumption was justified; that is
+    the decision the person makes by creating this request with a reason. The
+    code only insists that a reason exists and that there is still a future
+    invoicing event to attach the material to.
+
+    `items`: [{item_code, qty, warehouse?}] — what extra is needed.
+    """
+    if isinstance(items, str):
+        items = frappe.parse_json(items)
+
+    wo = frappe.get_doc("Work Order", work_order)
+    wo.check_permission("read")
+
+    _assert_extra_consumption_reason(reason)
+    _assert_work_order_can_still_invoice(wo)
+
+    if not wo.sales_order:
+        frappe.throw(
+            _(
+                "Work Order {0} has no Sales Order, so its customer cannot be "
+                "determined and its material cannot be picked."
+            ).format(frappe.bold(work_order)),
+            title=_("No customer for this Work Order"),
+        )
+
+    rows = []
+    for item in items or []:
+        qty = flt(item.get("qty"))
+        if qty <= 0:
+            continue
+        rows.append(
+            {
+                "item_code": item.get("item_code"),
+                "qty": qty,
+                "warehouse": item.get("warehouse") or wo.source_warehouse,
+                "schedule_date": frappe.utils.nowdate(),
+                "sales_order": wo.sales_order,
+            }
+        )
+
+    if not rows:
+        frappe.throw(_("Nothing to request — add at least one item and quantity."))
+
+    mr = frappe.get_doc(
+        {
+            "doctype": "Material Request",
+            "material_request_type": "Material Transfer",
+            "company": wo.company,
+            "transaction_date": frappe.utils.nowdate(),
+            "schedule_date": frappe.utils.nowdate(),
+            "work_order": work_order,
+            "wms_supplementary_for_work_order": 1,
+            "wms_extra_consumption_reason": reason,
+            "wms_extra_consumption_comment": comment,
+            "items": rows,
+        }
+    )
+    mr.insert(ignore_permissions=True)
+    return mr
+
+
+def _assert_extra_consumption_reason(reason):
+    """A supplementary request without a stated reason is refused."""
+    if not reason:
+        frappe.throw(
+            _(
+                "A reason is required for extra material beyond the BOM — this "
+                "is billed to the customer, so it has to say why it was needed."
+            ),
+            title=_("Reason required"),
+        )
+    doc = frappe.get_cached_doc("WMS Pick Reason", reason)
+    if not doc.is_active:
+        frappe.throw(_("Reason {0} is not active.").format(frappe.bold(reason)))
+    if not doc.get("applies_to_extra_consumption"):
+        frappe.throw(
+            _(
+                "Reason {0} is not meant for extra consumption. Pick one "
+                "flagged <b>Applies to Extra Consumption</b>."
+            ).format(frappe.bold(reason)),
+            title=_("Wrong kind of reason"),
+        )
+
+
+def _assert_work_order_can_still_invoice(wo):
+    """Refuse only when there is genuinely no future invoice to attach to.
+
+    BOTH conditions must hold: the Work Order is finished AND everything it
+    consumed is already billed, with nothing reserved. A Work Order that is
+    still open, or that has an open reservation or an un-invoiced remainder,
+    can still take supplementary material — there is a later invoicing event
+    for it to ride along with.
+    """
+    from frappe_wms2.wms.production import get_work_order_consumption
+
+    closed = wo.status in ("Completed", "Closed", "Stopped") or wo.docstatus == 2
+
+    consumed = sum(flt(q) for q in get_work_order_consumption(wo.name).values())
+    figures = frappe.get_all(
+        "WMS FOB Invoicing Progress",
+        filters={"work_order": wo.name},
+        fields=["consumed_qty", "invoiced_qty", "reserved_qty"],
+    )
+    invoiced = sum(flt(r.invoiced_qty) for r in figures)
+    reserved = sum(flt(r.reserved_qty) for r in figures)
+    tracked_consumed = sum(flt(r.consumed_qty) for r in figures)
+
+    fully_invoiced = (
+        reserved <= 0
+        and consumed > 0
+        and invoiced >= max(consumed, tracked_consumed) - 0.0000001
+    )
+
+    if closed and fully_invoiced:
+        frappe.throw(
+            _(
+                "Work Order {0} is {1} and everything it consumed ({2}) is "
+                "already invoiced, with nothing reserved — there is no future "
+                "invoice event left to attach extra material to.<br><br>Bill "
+                "this separately with a manual Sales Invoice instead."
+            ).format(
+                frappe.bold(wo.name), wo.status, invoiced
+            ),
+            title=_("Nothing left to invoice against"),
+        )

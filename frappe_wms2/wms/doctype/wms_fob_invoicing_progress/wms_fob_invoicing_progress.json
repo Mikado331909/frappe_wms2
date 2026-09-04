@@ -18,7 +18,9 @@
   "consumed_qty",
   "column_break_qty",
   "reserved_qty",
-  "invoiced_qty"
+  "invoiced_qty",
+  "supplementary_material_request",
+  "extra_consumption_reason"
  ],
  "fields": [
   {
@@ -118,6 +120,21 @@
    "read_only": 1,
    "in_list_view": 1,
    "description": "Cumulative quantity on SUBMITTED invoices. Only moves when a concept invoice is actually submitted; never exceeds Consumed qty."
+  },
+  {
+   "fieldname": "supplementary_material_request",
+   "fieldtype": "Link",
+   "label": "Supplementary Material Request",
+   "options": "Material Request",
+   "read_only": 1,
+   "description": "Set when this row tracks EXTRA consumption beyond the BOM, requested deliberately with a reason. Empty for ordinary BOM-driven rows."
+  },
+  {
+   "fieldname": "extra_consumption_reason",
+   "fieldtype": "Link",
+   "label": "Extra Consumption Reason",
+   "options": "WMS Pick Reason",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,

@@ -86,6 +86,9 @@ doctype_js = {
     "Sales Invoice": "public/js/fob_sales_invoice.js",
     # Part C: batch traceability button on the Work Order form.
     "Work Order": "public/js/work_order_traceability.js",
+    # Warning when cancelling a delivery that still has an open concept
+    # invoice — informational only, the behaviour itself is unchanged.
+    "Delivery Note": "public/js/delivery_note_concept_warning.js",
 }
 
 # Phase 3a: pick list print format is the default for the doctype.

@@ -86,6 +86,15 @@ PICK_REASON_SEED = [
      "description": "Material returned to stock before production used it."},
     {"reason": "Pick list entered in error", "applies_to_cancel_return": 1,
      "description": "The pick list itself was wrong and is reversed in full."},
+    # Extra material beyond the BOM, requested deliberately for a Work Order.
+    {"reason": "Rework", "applies_to_extra_consumption": 1,
+     "description": "Production had to be redone, consuming extra material."},
+    {"reason": "Spoilage during production", "applies_to_extra_consumption": 1,
+     "description": "Material damaged or lost while producing."},
+    {"reason": "Correction mid-run", "applies_to_extra_consumption": 1,
+     "description": "A correction during the run needed more material than planned."},
+    {"reason": "Extra material agreed with customer", "applies_to_extra_consumption": 1,
+     "description": "Additional consumption agreed with the customer up front."},
 ]
 
 
@@ -123,7 +132,7 @@ def ensure_pick_reasons():
         # Flags default to 0 unless the seed says otherwise, so a cancel
         # reason never shows up in the shortage picker and vice versa.
         for flag in ("applies_to_shortage", "applies_to_surplus",
-                     "applies_to_cancel_return"):
+                     "applies_to_cancel_return", "applies_to_extra_consumption"):
             row.setdefault(flag, 0)
         frappe.get_doc(row).insert(ignore_permissions=True)
 

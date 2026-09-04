@@ -14,6 +14,7 @@
   "applies_to_shortage",
   "applies_to_surplus",
   "applies_to_cancel_return",
+  "applies_to_extra_consumption",
   "description_section",
   "description"
  ],
@@ -60,6 +61,14 @@
    "label": "Applies to Cancel / Return",
    "in_list_view": 1,
    "description": "Selectable when a submitted pick list is cancelled, or when a quantity is returned from WIP to stock."
+  },
+  {
+   "default": "0",
+   "fieldname": "applies_to_extra_consumption",
+   "fieldtype": "Check",
+   "label": "Applies to Extra Consumption",
+   "in_list_view": 1,
+   "description": "Selectable when extra raw material beyond the BOM is requested for a Work Order (rework, spoilage, a correction mid-run)."
   },
   {
    "fieldname": "description_section",

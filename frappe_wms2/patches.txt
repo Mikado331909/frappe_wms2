@@ -11,3 +11,4 @@ frappe_wms2.patches.v0_7.seed_fob_direct_flag
 frappe_wms2.patches.v0_8.reload_wms_settings_location_owner
 frappe_wms2.patches.v0_9.cleanup_legacy_customer_warehouses
 frappe_wms2.patches.v0_9.route_type2_to_material_warehouse
+frappe_wms2.patches.v0_10.seed_extra_consumption_reasons

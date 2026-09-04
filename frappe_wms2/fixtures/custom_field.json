@@ -156,5 +156,46 @@
   "module": "WMS",
   "doctype": "Custom Field",
   "description": "Set by frappe_wms2: this entry is the zero-valuation restock of a FOB sale."
+ },
+ {
+  "name": "Material Request-wms_supplementary_for_work_order",
+  "dt": "Material Request",
+  "fieldname": "wms_supplementary_for_work_order",
+  "label": "Supplementary Consumption",
+  "fieldtype": "Check",
+  "insert_after": "work_order",
+  "read_only": 1,
+  "no_copy": 1,
+  "module": "WMS",
+  "description": "Extra material beyond the BOM for the Work Order above, on top of its normal request.",
+  "doctype": "Custom Field"
+ },
+ {
+  "name": "Material Request-wms_extra_consumption_reason",
+  "dt": "Material Request",
+  "fieldname": "wms_extra_consumption_reason",
+  "label": "Extra Consumption Reason",
+  "fieldtype": "Link",
+  "options": "WMS Pick Reason",
+  "insert_after": "wms_supplementary_for_work_order",
+  "read_only": 1,
+  "no_copy": 1,
+  "module": "WMS",
+  "depends_on": "wms_supplementary_for_work_order",
+  "description": "Why this extra material was needed. Mandatory for a supplementary request.",
+  "doctype": "Custom Field"
+ },
+ {
+  "name": "Material Request-wms_extra_consumption_comment",
+  "dt": "Material Request",
+  "fieldname": "wms_extra_consumption_comment",
+  "label": "Extra Consumption Comment",
+  "fieldtype": "Small Text",
+  "insert_after": "wms_extra_consumption_reason",
+  "read_only": 1,
+  "no_copy": 1,
+  "module": "WMS",
+  "depends_on": "wms_supplementary_for_work_order",
+  "doctype": "Custom Field"
  }
 ]

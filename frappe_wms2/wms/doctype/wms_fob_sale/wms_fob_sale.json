@@ -30,7 +30,8 @@
   "column_break_result",
   "restock_stock_entry",
   "concept_discarded",
-  "invoice_settled"
+  "invoice_settled",
+  "supplementary_material_request"
  ],
  "fields": [
   {
@@ -209,6 +210,14 @@
    "label": "Invoice Settled",
    "read_only": 1,
    "description": "The invoice behind this row was submitted, so its quantity moved from reserved to invoiced."
+  },
+  {
+   "fieldname": "supplementary_material_request",
+   "fieldtype": "Link",
+   "label": "Supplementary Material Request",
+   "options": "Material Request",
+   "read_only": 1,
+   "description": "Set when this row bills EXTRA material beyond the BOM."
   }
  ],
  "index_web_pages_for_search": 1,

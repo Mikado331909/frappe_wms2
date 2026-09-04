@@ -256,3 +256,51 @@ class TestFOBReservationCurrency(Type4Fixtures):
         frappe.db.commit()
         self.track("Currency Exchange", doc.name)
         return doc.name
+
+    # ------------------------------------------------- Part 2: DN warning
+    def test_w1_draft_concept_invoice_is_reported_for_the_warning(self):
+        """The dialog is client-side; what it shows comes from here."""
+        from frappe_wms2.wms.production import get_open_concept_invoices
+
+        ctx = self.setup_work_order(per_unit=2, order_qty=4, rate=6)
+        batch, loc = self.book_manufacture(ctx, 4)
+        dn = self.deliver(ctx.finished, batch, 4, loc)
+        invoice = self.invoice_for(dn.name)
+
+        open_invoices = get_open_concept_invoices(dn.name)
+        self.assertEqual(len(open_invoices), 1)
+        row = open_invoices[0]
+        self.assertEqual(row["name"], invoice.name)
+        self.assertEqual(row["customer"], self.customer_a)
+        self.assertEqual(flt(row["reserved"]), 8)          # still reserved
+        self.assertEqual(
+            [(i.item_code, flt(i.qty)) for i in
+             [frappe._dict(x) for x in row["items"]]],
+            [(ctx.raw, 8)],
+        )
+
+    def test_w2_confirmed_invoice_needs_no_warning(self):
+        from frappe_wms2.wms.production import get_open_concept_invoices
+
+        ctx = self.setup_work_order(per_unit=2, order_qty=4, rate=6)
+        batch, loc = self.book_manufacture(ctx, 4)
+        dn = self.deliver(ctx.finished, batch, 4, loc)
+        invoice = self.invoice_for(dn.name)
+        invoice.submit()
+
+        # Submitted: untouched by a DN cancellation either way, so nothing
+        # to warn about.
+        self.assertEqual(get_open_concept_invoices(dn.name), [])
+
+    def test_w3_delivery_without_a_concept_invoice_reports_nothing(self):
+        from frappe_wms2.wms.production import get_open_concept_invoices
+
+        # A shipment whose production consumed no Type 4 material of this
+        # customer never generates a concept invoice at all.
+        ctx = self.setup_work_order(per_unit=2, order_qty=3, rate=6)
+        batch, loc = self.book_manufacture(ctx, 3)
+        dn = self.deliver(ctx.finished, batch, 3, loc)
+        invoice = self.invoice_for(dn.name)
+        invoice.delete(ignore_permissions=True)   # discarded: nothing open
+
+        self.assertEqual(get_open_concept_invoices(dn.name), [])
